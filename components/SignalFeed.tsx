@@ -55,7 +55,7 @@ export const SignalFeed: React.FC<Props> = ({ tokens, onUpdateToken, onSelectTok
     <div className="space-y-8 animate-fade-in">
       
       {/* Hero Section */}
-      <div className="bg-gradient-to-r from-gray-900 to-gray-850 p-8 rounded-2xl border border-gray-750 relative overflow-hidden">
+      <div className="bg-gradient-to-r from-gray-900 to-gray-850 p-8 rounded-2xl border border-gray-750 relative overflow-hidden shadow-2xl">
         <div className="relative z-10">
             <h1 className="text-3xl font-bold text-white mb-2 flex items-center gap-3">
                 💎 Signal Box (Рекомендации)
@@ -95,74 +95,98 @@ export const SignalFeed: React.FC<Props> = ({ tokens, onUpdateToken, onSelectTok
         <div className="absolute top-0 right-0 w-64 h-64 bg-solana-green/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4"></div>
       </div>
 
-      {/* Results Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* Results List (Horizontal Layout) */}
+      <div className="flex flex-col gap-4">
         {recommendedTokens.length === 0 ? (
-             <div className="col-span-full text-center py-20 bg-gray-850/50 rounded-xl border border-dashed border-gray-700">
+             <div className="text-center py-20 bg-gray-850/50 rounded-xl border border-dashed border-gray-700">
                 <p className="text-gray-500 text-lg">Пока нет активных сигналов выше {minConfidence}% уверенности.</p>
                 <p className="text-gray-600 text-sm">Нажмите кнопку выше для анализа или понизьте порог в настройках.</p>
              </div>
         ) : (
             recommendedTokens.map(token => (
-                <div key={token.id} className="bg-gray-850 rounded-xl border border-solana-green/30 shadow-lg shadow-solana-green/5 overflow-hidden flex flex-col hover:border-solana-green/60 transition-colors">
-                    <div className="p-6 flex-1">
-                        <div className="flex justify-between items-start mb-4">
-                            <div>
+                <div key={token.id} className="bg-gray-850 rounded-xl border border-solana-green/30 shadow-lg shadow-solana-green/5 overflow-hidden hover:border-solana-green/60 transition-all group">
+                    <div className="flex flex-col lg:flex-row">
+                        
+                        {/* Content Area */}
+                        <div className="p-6 flex-1 grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
+                            
+                            {/* Identity (Col 1-3) */}
+                            <div className="md:col-span-3">
                                 <h3 className="text-xl font-bold text-white flex items-center gap-2">
                                     {token.symbol}
-                                    <span className="bg-green-500 text-gray-900 text-xs px-2 py-0.5 rounded font-bold">BUY</span>
+                                    <span className="bg-green-500/20 text-green-400 border border-green-500/50 text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wide">Buy Signal</span>
                                 </h3>
-                                <p className="text-xs text-gray-500 font-mono">{token.address.substring(0, 6)}...{token.address.substring(38)}</p>
+                                <p className="text-xs text-gray-500 font-mono mt-1 mb-3 truncate">{token.address}</p>
+                                
+                                <div className="flex gap-2">
+                                    <a 
+                                        href={`https://dexscreener.com/solana/${token.address}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1.5 rounded border border-gray-700 transition-colors flex items-center gap-1"
+                                    >
+                                        🦅 DexScreener
+                                    </a>
+                                    <a 
+                                        href={`https://www.geckoterminal.com/solana/pools/${token.address}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1.5 rounded border border-gray-700 transition-colors flex items-center gap-1"
+                                    >
+                                        🦎 GeckoTerminal
+                                    </a>
+                                </div>
                             </div>
-                            <div className="text-right">
-                                <div className="text-2xl font-bold text-solana-green">{token.aiAnalysis?.confidence}%</div>
-                                <div className="text-xs text-gray-500">Уверенность</div>
-                            </div>
-                        </div>
 
-                        <div className="space-y-4">
-                            <div className="bg-gray-900/50 p-3 rounded-lg border border-gray-800">
-                                <p className="text-xs text-gray-400 uppercase font-semibold mb-1">Паттерн</p>
-                                <p className="text-white font-medium">{token.aiAnalysis?.patternDetected}</p>
-                            </div>
-
-                            <div>
-                                <p className="text-xs text-gray-400 uppercase font-semibold mb-1">Почему покупать (Критерии):</p>
-                                <p className="text-sm text-gray-300 leading-relaxed bg-green-900/10 p-3 rounded border border-green-900/30">
+                            {/* Analysis (Col 4-9) */}
+                            <div className="md:col-span-6 border-t md:border-t-0 md:border-l md:border-r border-gray-800 md:px-6 py-4 md:py-0 border-dashed">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <span className="text-xs font-bold text-gray-400 uppercase">Pattern:</span>
+                                    <span className="text-white font-medium bg-gray-900 px-2 py-0.5 rounded border border-gray-700">{token.aiAnalysis?.patternDetected}</span>
+                                    <div className="ml-auto flex items-center gap-2">
+                                        <div className="h-2 w-16 bg-gray-700 rounded-full overflow-hidden">
+                                            <div className="h-full bg-solana-green shadow-[0_0_10px_rgba(20,241,149,0.5)]" style={{ width: `${token.aiAnalysis?.confidence}%` }}></div>
+                                        </div>
+                                        <span className="text-xs font-bold text-solana-green">{token.aiAnalysis?.confidence}% Conf.</span>
+                                    </div>
+                                </div>
+                                <p className="text-sm text-gray-300 leading-relaxed line-clamp-2 hover:line-clamp-none transition-all cursor-default">
                                     {token.aiAnalysis?.reasoning}
                                 </p>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2 text-xs">
-                                <div className="bg-gray-800 p-2 rounded">
-                                    <span className="text-gray-500 block">Liquidity</span>
-                                    <span className="text-white font-mono">${token.history[token.history.length-1].liquidity.toLocaleString()}</span>
+                            {/* Metrics (Col 10-12) */}
+                            <div className="md:col-span-3 flex justify-between md:block md:space-y-3">
+                                <div className="bg-gray-900/50 p-2 rounded border border-gray-800/50">
+                                    <span className="text-xs text-gray-500 block uppercase">Liquidity</span>
+                                    <span className="text-white font-mono font-bold text-sm">${token.history[token.history.length-1].liquidity.toLocaleString()}</span>
                                 </div>
-                                <div className="bg-gray-800 p-2 rounded">
-                                    <span className="text-gray-500 block">Makers</span>
-                                    <span className="text-white font-mono">{token.history[token.history.length-1].makers}</span>
+                                <div className="bg-gray-900/50 p-2 rounded border border-gray-800/50">
+                                    <span className="text-xs text-gray-500 block uppercase">Active Makers</span>
+                                    <span className="text-white font-mono font-bold text-sm">{token.history[token.history.length-1].makers}</span>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <div className="bg-gray-900 p-4 border-t border-gray-800 flex gap-3">
-                         <button 
-                            onClick={() => onSelectToken(token)}
-                            className="flex-1 bg-gray-800 hover:bg-gray-700 text-white py-2 rounded-lg font-medium transition-colors"
-                         >
-                            График
-                         </button>
-                         <button 
-                            onClick={() => {
-                                // Simulate Add to Portfolio
-                                const price = token.history[token.history.length-1].price;
-                                onUpdateToken({...token, isOwned: true, entryPrice: price, entryTime: Date.now()});
-                            }}
-                            className="flex-1 bg-solana-green hover:bg-emerald-400 text-gray-900 py-2 rounded-lg font-bold transition-colors"
-                         >
-                            Купить
-                         </button>
+                        {/* Action Area */}
+                        <div className="bg-gray-900/50 p-4 border-t lg:border-t-0 lg:border-l border-gray-800 flex lg:flex-col items-center justify-center gap-3 lg:w-48">
+                             <button 
+                                onClick={() => onSelectToken(token)}
+                                className="w-full bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg font-bold text-sm transition-colors border border-gray-700 flex items-center justify-center gap-2"
+                             >
+                                📊 График
+                             </button>
+                             <button 
+                                onClick={() => {
+                                    // Simulate Add to Portfolio
+                                    const price = token.history[token.history.length-1].price;
+                                    onUpdateToken({...token, isOwned: true, entryPrice: price, entryTime: Date.now()});
+                                }}
+                                className="w-full bg-solana-green hover:bg-emerald-400 text-gray-900 py-3 rounded-lg font-bold text-sm transition-colors shadow-lg shadow-solana-green/10 flex items-center justify-center gap-2"
+                             >
+                                💰 Купить
+                             </button>
+                        </div>
                     </div>
                 </div>
             ))

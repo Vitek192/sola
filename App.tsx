@@ -70,7 +70,14 @@ const App: React.FC = () => {
   };
 
   const [telegramConfig, setTelegramConfig] = useState<TelegramConfig>({ botToken: '', chatId: '', enabled: false });
-  const [serverConfig, setServerConfig] = useState<ServerConfig>({ url: 'http://localhost:3000', apiKey: 'my-secret', autoSave: true, enabled: false });
+  
+  // UPDATED DEFAULT SERVER CONFIG
+  const [serverConfig, setServerConfig] = useState<ServerConfig>({ 
+      url: 'http://46.32.79.231:3002', 
+      apiKey: 'solana-sniper-secret-2024', 
+      autoSave: true, 
+      enabled: true 
+  });
 
   const defaultStages: LifecycleStage[] = [
       { id: 'stage_launch', enabled: true, name: '🚀 Launch Zone (0-1h)', description: 'High risk tolerance.', startAgeMinutes: 0, minLiquidity: 500, maxLiquidity: 1000000, minMcap: 0, maxMcap: 10000000, minHolders: 0, maxHolders: 100000, maxTop10Holding: 100 },

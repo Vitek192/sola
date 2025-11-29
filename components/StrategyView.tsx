@@ -292,11 +292,32 @@ export const StrategyView: React.FC<Props> = ({ config, setConfig }) => {
                     </div>
                     
                      {/* Global Limits */}
-                     <div className="col-span-2 border-t border-gray-800 pt-4 mt-2">
-                        <HelpLabel label="Tracking Limit" ru="Лимит Времени" tip="Max age to track" />
-                        <div className="flex gap-4">
-                            <div className="relative flex-1"><SmartInput value={localConfig.trackingDays} onChange={v => handleGlobalChange('trackingDays', v)} className="w-full bg-gray-900 border-gray-700 text-white p-2 rounded text-sm font-mono" /><span className="absolute right-2 top-2 text-xs text-gray-500">Days</span></div>
-                            <div className="relative flex-1"><SmartInput value={localConfig.trackingHours} onChange={v => handleGlobalChange('trackingHours', v)} className="w-full bg-gray-900 border-gray-700 text-white p-2 rounded text-sm font-mono" /><span className="absolute right-2 top-2 text-xs text-gray-500">Hours</span></div>
+                     <div className="col-span-2 border-t border-gray-800 pt-4 mt-2 bg-gray-900/30 p-4 rounded-lg">
+                        <h3 className="text-white font-bold mb-3 flex items-center gap-2">
+                             🌍 Global Settings <span className="text-gray-500 font-normal">(Глобальные)</span>
+                        </h3>
+                        <div className="grid grid-cols-2 gap-8">
+                            <div>
+                                <HelpLabel label="Tracking Limit" ru="Лимит Времени" tip="Max age to track a token before archiving" />
+                                <div className="flex gap-4">
+                                    <div className="relative flex-1"><SmartInput value={localConfig.trackingDays} onChange={v => handleGlobalChange('trackingDays', v)} className="w-full bg-gray-800 border-gray-700 text-white p-2 rounded text-sm font-mono" /><span className="absolute right-2 top-2 text-xs text-gray-500">Days</span></div>
+                                    <div className="relative flex-1"><SmartInput value={localConfig.trackingHours} onChange={v => handleGlobalChange('trackingHours', v)} className="w-full bg-gray-800 border-gray-700 text-white p-2 rounded text-sm font-mono" /><span className="absolute right-2 top-2 text-xs text-gray-500">Hours</span></div>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <HelpLabel label="AI Confidence" ru="Порог ИИ" tip="Min confidence % required for 'Buy' signals" />
+                                <div className="flex items-center gap-3 mt-2">
+                                    <input 
+                                        type="range" 
+                                        min="50" max="99" 
+                                        value={localConfig.minAIConfidence} 
+                                        onChange={e => handleGlobalChange('minAIConfidence', parseInt(e.target.value))} 
+                                        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-solana-green" 
+                                    />
+                                    <span className="font-mono text-solana-green font-bold text-lg w-12 text-right">{localConfig.minAIConfidence}%</span>
+                                </div>
+                            </div>
                         </div>
                      </div>
                 </div>
