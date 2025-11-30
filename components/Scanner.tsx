@@ -17,6 +17,25 @@ type TimeFilter = 'ALL' | '1H' | '1D' | '2D' | '3D' | '4D' | '5D' | '6D' | '7D';
 type SortKey = 'symbol' | 'createdAt' | 'price' | 'growth' | 'change5m' | 'txCount' | 'liquidity' | 'marketCap' | 'netVolume';
 type SortDirection = 'asc' | 'desc';
 
+// Helper Logic for Potential Tokens (Extracted for performance)
+const isPotentialToken = (t: Token) => {
+    const latest = t.history[t.history.length - 1];
+    const first = t.history[0];
+    
+    if (!latest) return false;
+
+    // 1. Makers Increasing (Organic Interest)
+    const makersGrowth = latest.makers > (first?.makers || 0);
+    
+    // 2. Not Dumping Hard (Price Stability)
+    const stablePrice = (t.priceChange5m || 0) > -2.5;
+
+    // 3. Healthy Vol/Liq Ratio (Not dead, not insane)
+    const healthyVol = t.volLiqRatio > 0.05;
+
+    return makersGrowth && stablePrice && healthyVol;
+};
+
 export const Scanner: React.FC<Props> = ({ tokens, onSelectToken, deletedTokens = [], aiConfig, onNotify, strategy }) => {
   const [activeFilter, setActiveFilter] = useState<TimeFilter>('ALL');
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
@@ -208,6 +227,11 @@ export const Scanner: React.FC<Props> = ({ tokens, onSelectToken, deletedTokens 
       return { active, dead };
   };
 
+  // Calculate potential count based on current filter
+  const potentialCount = useMemo(() => {
+      return tokens.filter(t => checkAge(t.createdAt, activeFilter) && isPotentialToken(t)).length;
+  }, [tokens, activeFilter]);
+
   const processedTokens = useMemo(() => {
       let filtered = tokens.filter(t => checkAge(t.createdAt, activeFilter));
       if (selectedHour !== null) {
@@ -219,21 +243,7 @@ export const Scanner: React.FC<Props> = ({ tokens, onSelectToken, deletedTokens 
 
       // STRATEGIC POTENTIAL FILTER
       if (showPotentialOnly) {
-          filtered = filtered.filter(t => {
-              const latest = t.history[t.history.length - 1];
-              const first = t.history[0];
-              
-              // 1. Makers Increasing (Organic Interest)
-              const makersGrowth = latest.makers > (first?.makers || 0);
-              
-              // 2. Not Dumping Hard (Price Stability)
-              const stablePrice = (t.priceChange5m || 0) > -2.5;
-
-              // 3. Healthy Vol/Liq Ratio (Not dead, not insane)
-              const healthyVol = t.volLiqRatio > 0.05;
-
-              return makersGrowth && stablePrice && healthyVol;
-          });
+          filtered = filtered.filter(isPotentialToken);
       }
 
       return filtered.sort((a, b) => {
@@ -384,7 +394,8 @@ export const Scanner: React.FC<Props> = ({ tokens, onSelectToken, deletedTokens 
                     }`}
                 >
                     <span>{showPotentialOnly ? '💎' : '🎯'}</span>
-                    {showPotentialOnly ? 'Потенциальные (ON)' : 'Potential Buy'}
+                    {/* UPDATED LABEL HERE */}
+                    {showPotentialOnly ? `Потенциальные: ${potentialCount} (ON)` : `Потенциальные (${potentialCount})`}
                 </button>
             </div>
         </div>
@@ -524,7 +535,7 @@ export const Scanner: React.FC<Props> = ({ tokens, onSelectToken, deletedTokens 
                                                 title="Open in Phantom / Jupiter"
                                             >
                                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
-                                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
+                                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
                                                     <circle cx="9" cy="10" r="1.5"/>
                                                     <circle cx="15" cy="10" r="1.5"/>
                                                 </svg>

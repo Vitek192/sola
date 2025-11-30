@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AppView, StrategyConfig, Token, TelegramConfig, JournalEntry, SystemLog, DeletedToken, RiskAlert, ServerConfig, CustomAlertRule, LifecycleStage, CorrelationRule, User, AIConfig } from './types';
 import { fetchNewSolanaPools, fetchTokenHistory, fetchTokensBatch } from './services/solanaApi'; 
-import { saveHybridState, loadHybridState } from './services/persistence';
+import { saveHybridState, loadHybridState, testServerConnection } from './services/persistence';
 import { getCurrentUser, logout, updateUserProfile } from './services/auth'; 
 import { playSound, setMuted } from './services/sound'; // IMPORT SOUND & MUTE
 import { Scanner } from './components/Scanner';
@@ -139,7 +139,20 @@ const App: React.FC = () => {
       autoSave: true, 
       enabled: true 
   };
-  const [serverConfig, setServerConfig] = useState<ServerConfig>(defaultServerConfig);
+
+  // PERSISTENCE KEY FOR SERVER CONFIG
+  const SERVER_CONFIG_KEY = 'solana_sniper_server_config_v2';
+
+  // Load from LocalStorage or use Default
+  const [serverConfig, setServerConfig] = useState<ServerConfig>(() => {
+      try {
+          const saved = localStorage.getItem(SERVER_CONFIG_KEY);
+          if (saved) return JSON.parse(saved);
+      } catch (e) {
+          console.error("Failed to load server config", e);
+      }
+      return defaultServerConfig;
+  });
 
   const defaultAIConfig: AIConfig = {
       enabled: true,
@@ -179,13 +192,35 @@ const App: React.FC = () => {
   const journalRef = useRef(journalEntries);
 
   useEffect(() => { telegramConfigRef.current = telegramConfig; }, [telegramConfig]);
-  useEffect(() => { serverConfigRef.current = serverConfig; }, [serverConfig]);
+  
+  // Update Server Config Ref & Persist to LocalStorage
+  useEffect(() => { 
+      serverConfigRef.current = serverConfig; 
+      localStorage.setItem(SERVER_CONFIG_KEY, JSON.stringify(serverConfig));
+  }, [serverConfig]);
+
   useEffect(() => { aiConfigRef.current = aiConfig; }, [aiConfig]);
   useEffect(() => { tokensRef.current = tokens; }, [tokens]);
   useEffect(() => { strategyRef.current = strategy; }, [strategy]);
   useEffect(() => { deletedTokensRef.current = deletedTokens; }, [deletedTokens]);
   useEffect(() => { customRulesRef.current = customRules; }, [customRules]);
   useEffect(() => { journalRef.current = journalEntries; }, [journalEntries]);
+
+  // AUTO-CONNECT & TEST SERVER ON STARTUP
+  useEffect(() => {
+    if (currentUser && serverConfig.enabled) {
+        addLog('INFO', `Connecting to Server (${serverConfig.url})...`);
+        testServerConnection(serverConfig).then((res) => {
+            if (res.success) {
+                addLog('SUCCESS', `Server Connected: ${res.message}`);
+                setSyncStatus('ONLINE');
+            } else {
+                addLog('WARNING', `Server Connection Failed: ${res.message}`);
+                setSyncStatus('LOCAL');
+            }
+        });
+    }
+  }, [currentUser]); // Run once when user logs in
 
   useEffect(() => {
     if (!currentUser) return;

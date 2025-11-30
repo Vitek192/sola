@@ -1,5 +1,4 @@
 
-
 import React, { useState } from 'react';
 import { ServerConfig } from '../types';
 import { testServerConnection } from '../services/persistence';
@@ -112,6 +111,18 @@ export const ServerSettings: React.FC<Props> = ({ config, onSave, onForceLoad, o
                         '⚡ Test Connection to 155.212.217.21'
                      )}
                  </button>
+                 {testStatus === 'ERROR' && testMessage.includes('500') && (
+                     <div className="bg-yellow-900/20 border border-yellow-800 p-2 rounded text-[10px] text-yellow-400 flex items-start gap-2">
+                         <span className="text-lg">💡</span>
+                         <div>
+                             <b>Tip: Error 500 = Database Error</b>
+                             <ul className="list-disc list-inside mt-1 ml-1 text-yellow-500/80">
+                                <li>Check .env DB_PASS matches Postgres user</li>
+                                <li>Ensure table "app_state" exists (Run migration)</li>
+                             </ul>
+                         </div>
+                     </div>
+                 )}
             </div>
 
             <div className="flex items-center gap-2 px-1 pt-2">
