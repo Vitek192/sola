@@ -1,6 +1,7 @@
 
-
 import { ServerConfig, Token, DeletedToken, JournalEntry, StrategyConfig, TelegramConfig, CustomAlertRule, AIKey, AIConfig, AppState } from '../types';
+
+const PROXY_URL = 'https://corsproxy.io/?';
 
 const getBaseUrl = (config: ServerConfig) => {
     return config.url.replace(/\/$/, ""); 
@@ -42,25 +43,60 @@ export const loadLocalState = (userId?: string): AppState | null => {
     }
 };
 
+// --- SMART NETWORK LAYER ---
+
+/**
+ * Tries to fetch directly. If it fails (network error/mixed content), 
+ * it automatically retries via a Secure Proxy.
+ */
+const fetchWithFallback = async (url: string, options: RequestInit): Promise<{ response: Response, mode: 'DIRECT' | 'PROXY' }> => {
+    // 1. Try Direct Connection
+    try {
+        // Set a shorter timeout for direct attempt to fail fast
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        
+        const res = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(timeoutId);
+        
+        // If we get a response, even 404/500, the connection succeeded (layer 4)
+        return { response: res, mode: 'DIRECT' };
+    } catch (directError) {
+        // 2. Fallback to Proxy
+        // This usually catches Mixed Content errors or CORS issues
+        console.warn("Direct connection failed, switching to Secure Proxy...", directError);
+        
+        try {
+            const proxyTarget = `${PROXY_URL}${encodeURIComponent(url)}`;
+            // Proxy needs a slightly longer timeout
+            const controllerProxy = new AbortController();
+            const timeoutIdProxy = setTimeout(() => controllerProxy.abort(), 8000);
+
+            const res = await fetch(proxyTarget, { ...options, signal: controllerProxy.signal });
+            clearTimeout(timeoutIdProxy);
+            
+            return { response: res, mode: 'PROXY' };
+        } catch (proxyError) {
+            console.error("Proxy connection failed:", proxyError);
+            throw proxyError; // Both failed
+        }
+    }
+};
+
 // --- SERVER TEST ---
-export const testServerConnection = async (config: ServerConfig): Promise<{ success: boolean; message: string }> => {
+export const testServerConnection = async (config: ServerConfig): Promise<{ success: boolean; message: string; mode?: 'DIRECT' | 'PROXY' }> => {
     if (!config.url) return { success: false, message: 'URL is empty' };
     
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 sec timeout
-
-        // We try to load 'dummy' data just to check auth and reachability
-        const response = await fetch(`${getBaseUrl(config)}/api/load`, {
+        const targetUrl = `${getBaseUrl(config)}/api/load`;
+        
+        const { response, mode } = await fetchWithFallback(targetUrl, {
             method: 'GET',
             headers: { 
                 'Authorization': `Bearer ${config.apiKey}`,
                 'X-User-ID': 'connection_test_probe'
-            },
-            signal: controller.signal
+            }
         });
-        
-        clearTimeout(timeoutId);
 
         if (response.status === 403) {
             return { success: false, message: '🔐 Invalid Secret Key (403)' };
@@ -72,45 +108,40 @@ export const testServerConnection = async (config: ServerConfig): Promise<{ succ
         
         if (response.ok || response.status === 404) {
             // 404 is fine (user not found), it means server is reachable and auth worked
-            return { success: true, message: '🟢 Online & Ready' };
+            const msg = mode === 'DIRECT' ? '🟢 Online (Direct)' : '🛡️ Online (Secure Proxy)';
+            return { success: true, message: msg, mode };
         }
 
         return { success: false, message: `Server Error: ${response.status}` };
     } catch (e: any) {
-        if (e.name === 'AbortError') return { success: false, message: '⏱️ Timeout (5s) - Server slow or blocked' };
-        if (e.message && e.message.includes('Failed to fetch')) return { success: false, message: '🚫 Network Error (Check IP/Firewall)' };
-        return { success: false, message: `⚠️ Error: ${e.message}` };
+        if (e.name === 'AbortError') return { success: false, message: '⏱️ Timeout - Server Unreachable' };
+        return { success: false, message: `🚫 Connection Failed (Check IP/Firewall)` };
     }
 };
 
 // --- HYBRID SYNC ENGINE ---
 
 export const saveHybridState = async (config: ServerConfig, state: AppState, userId?: string): Promise<'SERVER' | 'LOCAL' | 'FAILED'> => {
-    // 1. Try Server
+    // 1. Try Server (with Proxy Fallback)
     if (config.enabled && config.url) {
         try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 3000); 
-
-            const response = await fetch(`${getBaseUrl(config)}/api/save`, {
+            const targetUrl = `${getBaseUrl(config)}/api/save`;
+            const { response } = await fetchWithFallback(targetUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${config.apiKey}`,
                     'X-User-ID': userId || 'default'
                 },
-                body: JSON.stringify(state),
-                signal: controller.signal
+                body: JSON.stringify(state)
             });
-            
-            clearTimeout(timeoutId);
 
             if (response.ok) {
                 saveLocalState(state, userId);
                 return 'SERVER';
             }
         } catch (e) {
-            console.warn("Server unreachable, falling back to local.");
+            console.warn("Server save failed, falling back to local.");
         }
     }
 
@@ -120,22 +151,17 @@ export const saveHybridState = async (config: ServerConfig, state: AppState, use
 };
 
 export const loadHybridState = async (config: ServerConfig, userId?: string): Promise<{ data: AppState | null, source: 'SERVER' | 'LOCAL' | 'NONE' }> => {
-    // 1. Try Server
+    // 1. Try Server (with Proxy Fallback)
     if (config.enabled && config.url) {
         try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 3000);
-
-            const response = await fetch(`${getBaseUrl(config)}/api/load`, {
+            const targetUrl = `${getBaseUrl(config)}/api/load`;
+            const { response } = await fetchWithFallback(targetUrl, {
                 method: 'GET',
                 headers: { 
                     'Authorization': `Bearer ${config.apiKey}`,
                     'X-User-ID': userId || 'default'
-                },
-                signal: controller.signal
+                }
             });
-            
-            clearTimeout(timeoutId);
 
             if (response.ok) {
                 const data = await response.json();
