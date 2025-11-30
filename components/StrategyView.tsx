@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { StrategyConfig, LifecycleStage, CorrelationRule, AlertMetric } from '../types';
 
@@ -63,7 +62,7 @@ const SmartInput: React.FC<{
       step={step}
       value={text} 
       onChange={handleChange} 
-      className={className}
+      className={`${className} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
       placeholder={placeholder}
       disabled={disabled}
     />
@@ -178,9 +177,9 @@ export const StrategyView: React.FC<Props> = ({ config, setConfig }) => {
   const activeStage = localConfig.stages[activeStageIndex];
 
   return (
-    <div className="animate-fade-in pb-20 h-[85vh] flex flex-col">
+    <div className="animate-fade-in pb-20 flex flex-col min-h-0">
       {/* HEADER TABS */}
-      <div className="flex gap-4 border-b border-gray-800 mb-6 bg-gray-900 px-4 pt-2 rounded-t-xl sticky top-0 z-30">
+      <div className="flex gap-4 border-b border-gray-800 mb-6 bg-gray-900 px-4 pt-2 rounded-t-xl sticky top-14 z-30">
           <button 
              onClick={() => setActiveTab('STAGES')}
              className={`px-6 py-3 border-b-2 font-bold transition-all ${activeTab === 'STAGES' ? 'border-solana-green text-white' : 'border-transparent text-gray-500 hover:text-gray-300'}`}
@@ -210,9 +209,9 @@ export const StrategyView: React.FC<Props> = ({ config, setConfig }) => {
       </div>
 
       {activeTab === 'STAGES' && activeStage && (
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-1 overflow-hidden">
-            {/* TIMELINE */}
-            <div className="lg:col-span-1 bg-gray-900 border-r border-gray-800 p-4 flex flex-col overflow-y-auto custom-scrollbar rounded-bl-xl">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            {/* TIMELINE (Left Sidebar) */}
+            <div className="lg:col-span-1 bg-gray-900 border-r border-gray-800 p-4 flex flex-col rounded-bl-xl h-fit sticky top-32">
                 <div className="mb-4">
                     <h2 className="text-xl font-bold text-white">Timeline</h2>
                     <p className="text-xs text-gray-500">Sequential filtration logic.</p>
@@ -239,20 +238,28 @@ export const StrategyView: React.FC<Props> = ({ config, setConfig }) => {
                 </div>
             </div>
 
-            {/* STAGE EDITOR */}
-            <div key={activeStage.id} className="lg:col-span-3 bg-gray-850 p-8 rounded-xl border border-gray-750 overflow-y-auto custom-scrollbar">
+            {/* STAGE EDITOR (Main Content) */}
+            <div key={activeStage.id} className="lg:col-span-3 bg-gray-850 p-8 rounded-xl border border-gray-750">
+                
+                {/* Stage Header & Toggle */}
                 <div className="flex justify-between items-center mb-6 border-b border-gray-800 pb-4">
                     <div className="flex items-center gap-3">
                         <label className="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" checked={activeStage.enabled !== false} onChange={(e) => handleStageChange('enabled', e.target.checked)} className="sr-only peer" />
                             <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:bg-solana-green peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
                         </label>
-                        <span className="font-bold text-white">{activeStage.name}</span>
+                        <div>
+                            <span className={`font-bold text-lg ${activeStage.enabled === false ? 'text-gray-500 line-through' : 'text-white'}`}>
+                                {activeStage.name}
+                            </span>
+                            {activeStage.enabled === false && <span className="ml-2 text-xs text-red-400 uppercase font-bold">(Disabled/Отключен)</span>}
+                        </div>
                     </div>
-                    <button onClick={handleDeleteStage} className="text-red-400 text-sm hover:underline">Delete Stage</button>
+                    <button onClick={handleDeleteStage} className="text-red-400 text-xs hover:text-red-300 border border-red-900/50 px-3 py-1 rounded bg-red-900/10">Delete Stage</button>
                 </div>
 
-                <div className={`grid grid-cols-1 md:grid-cols-2 gap-8 ${activeStage.enabled === false ? 'opacity-50 pointer-events-none' : ''}`}>
+                {/* Stage Specific Inputs (Disabled if stage is off) */}
+                <div className={`grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 transition-opacity ${activeStage.enabled === false ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
                     {/* Meta */}
                     <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-800 col-span-2 grid grid-cols-2 gap-4">
                         <div>
@@ -290,37 +297,38 @@ export const StrategyView: React.FC<Props> = ({ config, setConfig }) => {
                          <div><HelpLabel label="Max Count" ru="Макс" tip="Max Holders" /><SmartInput value={activeStage.maxHolders} onChange={v => handleStageChange('maxHolders', v)} className="w-full bg-gray-900 border-gray-700 text-white p-2 rounded text-sm font-mono" /></div>
                          <div><HelpLabel label="Max Top 10 %" ru="Топ-10" tip="Max concentration" /><SmartInput value={activeStage.maxTop10Holding} onChange={v => handleStageChange('maxTop10Holding', v)} className="w-full bg-gray-900 border-gray-700 text-white p-2 rounded text-sm font-mono" /></div>
                     </div>
-                    
-                     {/* Global Limits */}
-                     <div className="col-span-2 border-t border-gray-800 pt-4 mt-2 bg-gray-900/30 p-4 rounded-lg">
-                        <h3 className="text-white font-bold mb-3 flex items-center gap-2">
-                             🌍 Global Settings <span className="text-gray-500 font-normal">(Глобальные)</span>
-                        </h3>
-                        <div className="grid grid-cols-2 gap-8">
-                            <div>
-                                <HelpLabel label="Tracking Limit" ru="Лимит Времени" tip="Max age to track a token before archiving" />
-                                <div className="flex gap-4">
-                                    <div className="relative flex-1"><SmartInput value={localConfig.trackingDays} onChange={v => handleGlobalChange('trackingDays', v)} className="w-full bg-gray-800 border-gray-700 text-white p-2 rounded text-sm font-mono" /><span className="absolute right-2 top-2 text-xs text-gray-500">Days</span></div>
-                                    <div className="relative flex-1"><SmartInput value={localConfig.trackingHours} onChange={v => handleGlobalChange('trackingHours', v)} className="w-full bg-gray-800 border-gray-700 text-white p-2 rounded text-sm font-mono" /><span className="absolute right-2 top-2 text-xs text-gray-500">Hours</span></div>
-                                </div>
-                            </div>
-                            
-                            <div>
-                                <HelpLabel label="AI Confidence" ru="Порог ИИ" tip="Min confidence % required for 'Buy' signals" />
-                                <div className="flex items-center gap-3 mt-2">
-                                    <input 
-                                        type="range" 
-                                        min="50" max="99" 
-                                        value={localConfig.minAIConfidence} 
-                                        onChange={e => handleGlobalChange('minAIConfidence', parseInt(e.target.value))} 
-                                        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-solana-green" 
-                                    />
-                                    <span className="font-mono text-solana-green font-bold text-lg w-12 text-right">{localConfig.minAIConfidence}%</span>
-                                </div>
+                </div>
+                
+                {/* Global Limits (OUTSIDE of disabled block) */}
+                <div className="border-t border-gray-800 pt-6 mt-4 bg-gray-900/30 p-6 rounded-xl border border-gray-800 shadow-inner">
+                    <h3 className="text-white font-bold mb-4 flex items-center gap-2">
+                            🌍 Global Settings <span className="text-gray-500 font-normal">(Глобальные Настройки)</span>
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div>
+                            <HelpLabel label="Tracking Limit" ru="Лимит Времени" tip="Max age to track a token before archiving" />
+                            <div className="flex gap-4">
+                                <div className="relative flex-1"><SmartInput value={localConfig.trackingDays} onChange={v => handleGlobalChange('trackingDays', v)} className="w-full bg-gray-800 border-gray-700 text-white p-2 rounded text-sm font-mono" /><span className="absolute right-2 top-2 text-xs text-gray-500">Days</span></div>
+                                <div className="relative flex-1"><SmartInput value={localConfig.trackingHours} onChange={v => handleGlobalChange('trackingHours', v)} className="w-full bg-gray-800 border-gray-700 text-white p-2 rounded text-sm font-mono" /><span className="absolute right-2 top-2 text-xs text-gray-500">Hours</span></div>
                             </div>
                         </div>
-                     </div>
+                        
+                        <div>
+                            <HelpLabel label="AI Confidence" ru="Порог ИИ" tip="Min confidence % required for 'Buy' signals" />
+                            <div className="flex items-center gap-3 mt-2">
+                                <input 
+                                    type="range" 
+                                    min="50" max="99" 
+                                    value={localConfig.minAIConfidence} 
+                                    onChange={e => handleGlobalChange('minAIConfidence', parseInt(e.target.value))} 
+                                    className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-solana-green" 
+                                />
+                                <span className="font-mono text-solana-green font-bold text-lg w-12 text-right">{localConfig.minAIConfidence}%</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+
             </div>
           </div>
       )}

@@ -28,7 +28,15 @@ const App: React.FC = () => {
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [deletedTokens, setDeletedTokens] = useState<DeletedToken[]>([]);
   const [riskAlerts, setRiskAlerts] = useState<RiskAlert[]>([]);
-  const [customRules, setCustomRules] = useState<CustomAlertRule[]>([]);
+  
+  // --- DEFAULTS ---
+  const defaultCustomRules: CustomAlertRule[] = [
+      { id: 'rule_pump', name: '🚀 Pump Alert', metric: 'PRICE_CHANGE_5M', condition: 'GT', value: 30, enabled: true },
+      { id: 'rule_dump', name: '📉 Dump Alert', metric: 'PRICE_CHANGE_5M', condition: 'LT', value: -20, enabled: true },
+      { id: 'rule_whale', name: '🐋 Whale Volume', metric: 'NET_VOLUME', condition: 'GT', value: 50000, enabled: true }
+  ];
+
+  const [customRules, setCustomRules] = useState<CustomAlertRule[]>(defaultCustomRules);
   
   const addLog = (type: SystemLog['type'], message: string) => {
     const newLog: SystemLog = {
@@ -72,12 +80,13 @@ const App: React.FC = () => {
   const [telegramConfig, setTelegramConfig] = useState<TelegramConfig>({ botToken: '', chatId: '', enabled: false });
   
   // UPDATED DEFAULT SERVER CONFIG
-  const [serverConfig, setServerConfig] = useState<ServerConfig>({ 
+  const defaultServerConfig: ServerConfig = { 
       url: 'http://46.32.79.231:3002', 
       apiKey: 'solana-sniper-secret-2024', 
       autoSave: true, 
       enabled: true 
-  });
+  };
+  const [serverConfig, setServerConfig] = useState<ServerConfig>(defaultServerConfig);
 
   const defaultStages: LifecycleStage[] = [
       { id: 'stage_launch', enabled: true, name: '🚀 Launch Zone (0-1h)', description: 'High risk tolerance.', startAgeMinutes: 0, minLiquidity: 500, maxLiquidity: 1000000, minMcap: 0, maxMcap: 10000000, minHolders: 0, maxHolders: 100000, maxTop10Holding: 100 },
@@ -89,13 +98,15 @@ const App: React.FC = () => {
       { id: 'zombie_1', enabled: true, name: 'Zombie Coin', description: 'No trades in 5m but old enough', metric: 'TX_COUNT', condition: 'EQ', value: 0, minAgeMinutes: 30 }
   ];
 
-  const [strategy, setStrategy] = useState<StrategyConfig>({
+  const defaultStrategy: StrategyConfig = {
     minAIConfidence: 75,
     trackingDays: 7,
     trackingHours: 0,
     stages: defaultStages,
     correlations: defaultCorrelations
-  });
+  };
+
+  const [strategy, setStrategy] = useState<StrategyConfig>(defaultStrategy);
 
   const [isScanning, setIsScanning] = useState(true);
 
@@ -343,6 +354,15 @@ const App: React.FC = () => {
     setTokens(prev => prev.map(t => t.id === updatedToken.id ? updatedToken : t));
   };
 
+  const handleFactoryReset = () => {
+      if(window.confirm("⚠️ RESET TO DEFAULTS?\nThis will revert Strategy, Rules, and Server Config to original settings. Your Token list will be preserved.")) {
+          setStrategy(defaultStrategy);
+          setCustomRules(defaultCustomRules);
+          setServerConfig(defaultServerConfig);
+          addLog('WARNING', 'System settings reset to Factory Defaults.');
+      }
+  };
+
   const selectedToken = tokens.find(t => t.id === selectedTokenId) || null;
 
   return (
@@ -400,7 +420,7 @@ const App: React.FC = () => {
                 {currentView === AppView.LOGS && <SystemLogs logs={logs} />}
                 {currentView === AppView.GRAVEYARD && <Graveyard deletedTokens={deletedTokens} />}
                 {currentView === AppView.SETTINGS && (
-                    <div className="space-y-8">
+                    <div className="space-y-8 animate-fade-in">
                         <TelegramSettings config={telegramConfig} onSave={setTelegramConfig} />
                         <ServerSettings 
                             config={serverConfig} 
@@ -411,13 +431,28 @@ const App: React.FC = () => {
                                     if(res.data) {
                                         setTokens(res.data.tokens);
                                         setDeletedTokens(res.data.deletedTokens);
-                                        // ... other state updates would go here in a full implementation
+                                        setStrategy(res.data.strategy);
+                                        setCustomRules(res.data.customRules || defaultCustomRules);
                                         addLog('SUCCESS', 'Manual Load Complete');
                                     }
                                 });
                             }} 
                             onForceSave={triggerAutoSave} 
                         />
+                        
+                        {/* Danger Zone: Factory Reset */}
+                        <div className="bg-red-900/10 border border-red-900/50 p-6 rounded-xl max-w-2xl mx-auto flex justify-between items-center">
+                            <div>
+                                <h3 className="text-red-400 font-bold text-lg">⚠️ Danger Zone</h3>
+                                <p className="text-gray-500 text-sm">Reset strategy, rules, and server to default settings.</p>
+                            </div>
+                            <button 
+                                onClick={handleFactoryReset}
+                                className="px-4 py-2 bg-red-900/30 hover:bg-red-900/50 text-red-400 border border-red-800/50 rounded-lg font-bold transition-all"
+                            >
+                                ♻️ Reset to Defaults
+                            </button>
+                        </div>
                     </div>
                 )}
             </>
