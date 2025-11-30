@@ -1,29 +1,34 @@
 
 import React, { useState } from 'react';
-import { Token } from '../types';
+import { Token, AIConfig } from '../types';
 import { analyzeTokenWithGemini } from '../services/gemini';
 
 interface Props {
   tokens: Token[];
   onUpdateToken: (t: Token) => void;
   onSelectToken: (t: Token) => void;
-  minConfidence: number; // New prop
+  minConfidence: number;
+  aiConfig: AIConfig; // New Prop
 }
 
-export const SignalFeed: React.FC<Props> = ({ tokens, onUpdateToken, onSelectToken, minConfidence }) => {
+export const SignalFeed: React.FC<Props> = ({ tokens, onUpdateToken, onSelectToken, minConfidence, aiConfig }) => {
   const [isAutoMining, setIsAutoMining] = useState(false);
 
-  // 1. Filter tokens using dynamic confidence threshold
   const recommendedTokens = tokens.filter(t => 
     t.aiAnalysis?.action === 'BUY' && 
     t.aiAnalysis.confidence >= minConfidence
   );
 
-  // 2. Logic to auto-scan tokens that look promising but haven't been checked by AI yet
   const handleAutoMine = async () => {
+    // 1. Check AI Keys
+    const hasActiveKeys = aiConfig.enabled && aiConfig.keys.some(k => k.enabled);
+    if (!hasActiveKeys) {
+        alert("⚠️ AI Brain не настроен.\nПожалуйста, добавьте ключи в Settings для запуска Авто-Майнинга.");
+        return;
+    }
+
     setIsAutoMining(true);
     
-    // Find tokens: Not owned, No AI analysis yet, Liquidity > $2k, Age > 30 mins
     const candidates = tokens.filter(t => 
         !t.isOwned && 
         !t.aiAnalysis && 
@@ -31,21 +36,29 @@ export const SignalFeed: React.FC<Props> = ({ tokens, onUpdateToken, onSelectTok
         (Date.now() - t.createdAt) > 30 * 60 * 1000
     );
 
-    // Sort by Volume (Highest first) and take top 5 to save API credits/time
     const topCandidates = candidates
         .sort((a, b) => b.history[b.history.length-1].volume24h - a.history[a.history.length-1].volume24h)
         .slice(0, 5);
 
+    if (topCandidates.length === 0) {
+        alert("Нет подходящих кандидатов для анализа (нужна ликвидность > $2000 и возраст > 30 мин).");
+        setIsAutoMining(false);
+        return;
+    }
+
     for (const token of topCandidates) {
-        const analysis = await analyzeTokenWithGemini(token);
-        const updatedToken: Token = { 
-            ...token, 
-            aiAnalysis: analysis, 
-            status: analysis.action === 'BUY' ? 'BUY_SIGNAL' : analysis.action === 'SELL' ? 'SELL_SIGNAL' : 'TRACKING' 
-        };
-        onUpdateToken(updatedToken);
-        // Small delay to not hit rate limits if any
-        await new Promise(r => setTimeout(r, 1000));
+        try {
+            const analysis = await analyzeTokenWithGemini(token, aiConfig);
+            const updatedToken: Token = { 
+                ...token, 
+                aiAnalysis: analysis, 
+                status: analysis.action === 'BUY' ? 'BUY_SIGNAL' : analysis.action === 'SELL' ? 'SELL_SIGNAL' : 'TRACKING' 
+            };
+            onUpdateToken(updatedToken);
+            await new Promise(r => setTimeout(r, 1000));
+        } catch (e) {
+            console.error("Signal Feed Analysis Error", e);
+        }
     }
     
     setIsAutoMining(false);
@@ -54,7 +67,6 @@ export const SignalFeed: React.FC<Props> = ({ tokens, onUpdateToken, onSelectTok
   return (
     <div className="space-y-8 animate-fade-in">
       
-      {/* Hero Section */}
       <div className="bg-gradient-to-r from-gray-900 to-gray-850 p-8 rounded-2xl border border-gray-750 relative overflow-hidden shadow-2xl">
         <div className="relative z-10">
             <h1 className="text-3xl font-bold text-white mb-2 flex items-center gap-3">
@@ -81,7 +93,7 @@ export const SignalFeed: React.FC<Props> = ({ tokens, onUpdateToken, onSelectTok
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        Ищем Алмазы (AI Mining)...
+                        Ищем Алмазы (AI Scan)...
                     </>
                 ) : (
                     <>
@@ -90,12 +102,9 @@ export const SignalFeed: React.FC<Props> = ({ tokens, onUpdateToken, onSelectTok
                 )}
             </button>
         </div>
-        
-        {/* Decorative Background */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-solana-green/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4"></div>
       </div>
 
-      {/* Results List (Horizontal Layout) */}
       <div className="flex flex-col gap-4">
         {recommendedTokens.length === 0 ? (
              <div className="text-center py-20 bg-gray-850/50 rounded-xl border border-dashed border-gray-700">
@@ -107,10 +116,8 @@ export const SignalFeed: React.FC<Props> = ({ tokens, onUpdateToken, onSelectTok
                 <div key={token.id} className="bg-gray-850 rounded-xl border border-solana-green/30 shadow-lg shadow-solana-green/5 overflow-hidden hover:border-solana-green/60 transition-all group">
                     <div className="flex flex-col lg:flex-row">
                         
-                        {/* Content Area */}
                         <div className="p-6 flex-1 grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
                             
-                            {/* Identity (Col 1-3) */}
                             <div className="md:col-span-3">
                                 <h3 className="text-xl font-bold text-white flex items-center gap-2">
                                     {token.symbol}
@@ -119,26 +126,11 @@ export const SignalFeed: React.FC<Props> = ({ tokens, onUpdateToken, onSelectTok
                                 <p className="text-xs text-gray-500 font-mono mt-1 mb-3 truncate">{token.address}</p>
                                 
                                 <div className="flex gap-2">
-                                    <a 
-                                        href={`https://dexscreener.com/solana/${token.address}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1.5 rounded border border-gray-700 transition-colors flex items-center gap-1"
-                                    >
-                                        🦅 DexScreener
-                                    </a>
-                                    <a 
-                                        href={`https://www.geckoterminal.com/solana/pools/${token.address}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1.5 rounded border border-gray-700 transition-colors flex items-center gap-1"
-                                    >
-                                        🦎 GeckoTerminal
-                                    </a>
+                                    <a href={`https://dexscreener.com/solana/${token.address}`} target="_blank" rel="noreferrer" className="text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1.5 rounded border border-gray-700 transition-colors flex items-center gap-1">🦅 DexScreener</a>
+                                    <a href={`https://www.geckoterminal.com/solana/pools/${token.address}`} target="_blank" rel="noreferrer" className="text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1.5 rounded border border-gray-700 transition-colors flex items-center gap-1">🦎 GeckoTerminal</a>
                                 </div>
                             </div>
 
-                            {/* Analysis (Col 4-9) */}
                             <div className="md:col-span-6 border-t md:border-t-0 md:border-l md:border-r border-gray-800 md:px-6 py-4 md:py-0 border-dashed">
                                 <div className="flex items-center gap-3 mb-2">
                                     <span className="text-xs font-bold text-gray-400 uppercase">Pattern:</span>
@@ -155,7 +147,6 @@ export const SignalFeed: React.FC<Props> = ({ tokens, onUpdateToken, onSelectTok
                                 </p>
                             </div>
 
-                            {/* Metrics (Col 10-12) */}
                             <div className="md:col-span-3 flex justify-between md:block md:space-y-3">
                                 <div className="bg-gray-900/50 p-2 rounded border border-gray-800/50">
                                     <span className="text-xs text-gray-500 block uppercase">Liquidity</span>
@@ -168,24 +159,9 @@ export const SignalFeed: React.FC<Props> = ({ tokens, onUpdateToken, onSelectTok
                             </div>
                         </div>
 
-                        {/* Action Area */}
                         <div className="bg-gray-900/50 p-4 border-t lg:border-t-0 lg:border-l border-gray-800 flex lg:flex-col items-center justify-center gap-3 lg:w-48">
-                             <button 
-                                onClick={() => onSelectToken(token)}
-                                className="w-full bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg font-bold text-sm transition-colors border border-gray-700 flex items-center justify-center gap-2"
-                             >
-                                📊 График
-                             </button>
-                             <button 
-                                onClick={() => {
-                                    // Simulate Add to Portfolio
-                                    const price = token.history[token.history.length-1].price;
-                                    onUpdateToken({...token, isOwned: true, entryPrice: price, entryTime: Date.now()});
-                                }}
-                                className="w-full bg-solana-green hover:bg-emerald-400 text-gray-900 py-3 rounded-lg font-bold text-sm transition-colors shadow-lg shadow-solana-green/10 flex items-center justify-center gap-2"
-                             >
-                                💰 Купить
-                             </button>
+                             <button onClick={() => onSelectToken(token)} className="w-full bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg font-bold text-sm transition-colors border border-gray-700 flex items-center justify-center gap-2">📊 График</button>
+                             <button onClick={() => { const price = token.history[token.history.length-1].price; onUpdateToken({...token, isOwned: true, entryPrice: price, entryTime: Date.now()}); }} className="w-full bg-solana-green hover:bg-emerald-400 text-gray-900 py-3 rounded-lg font-bold text-sm transition-colors shadow-lg shadow-solana-green/10 flex items-center justify-center gap-2">💰 Купить</button>
                         </div>
                     </div>
                 </div>

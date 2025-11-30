@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { TelegramConfig } from '../types';
 
@@ -58,77 +59,81 @@ export const TelegramSettings: React.FC<Props> = ({ config, onSave }) => {
   };
 
   return (
-    <div className="bg-gray-850 p-8 rounded-xl border border-gray-750 max-w-2xl mx-auto mt-10">
-      <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-3">
-        <span className="bg-blue-500 p-2 rounded-lg">✈️</span>
-        Telegram Notification Setup
-      </h2>
-      
-      <p className="text-gray-400 mb-6 text-sm">
-        Configure your bot to receive real-time alerts. 
-        <br/>
-        <span className="text-green-400">Fixed:</span> Now using a secure Proxy to bypass browser CORS errors.
-      </p>
-
-      <div className="space-y-6">
-        <div>
-            <label className="block text-sm text-gray-400 mb-2">Bot API Token</label>
-            <input
-                type="text"
-                value={localConfig.botToken}
-                onChange={(e) => handleChange('botToken', e.target.value)}
-                placeholder="123456789:AAH..."
-                className="w-full bg-gray-950 border border-gray-700 text-white px-4 py-3 rounded-lg focus:border-blue-500 outline-none font-mono"
-            />
+    <div className="bg-gray-850 p-6 rounded-xl border border-gray-750 h-full flex flex-col justify-between shadow-lg">
+      <div>
+        <div className="flex items-center gap-3 mb-6 border-b border-gray-800 pb-4">
+            <span className="bg-blue-500/10 text-blue-400 p-2.5 rounded-lg text-xl border border-blue-500/20">✈️</span>
+            <div>
+                <h2 className="text-xl font-bold text-white">Telegram Alerts</h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                    Real-time notifications via <span className="text-blue-400 font-bold">@BotFather</span>
+                </p>
+            </div>
         </div>
 
-        <div>
-            <label className="block text-sm text-gray-400 mb-2">Your Chat ID</label>
-            <input
-                type="text"
-                value={localConfig.chatId}
-                onChange={(e) => handleChange('chatId', e.target.value)}
-                placeholder="987654321"
-                className="w-full bg-gray-950 border border-gray-700 text-white px-4 py-3 rounded-lg focus:border-blue-500 outline-none font-mono"
-            />
-            <p className="text-xs text-gray-500 mt-1">Get this from @userinfobot if you don't know it.</p>
-        </div>
+        <div className="space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label className="block text-xs text-gray-500 mb-1.5 font-bold uppercase tracking-wide">Bot API Token</label>
+                    <input
+                        type="text"
+                        value={localConfig.botToken}
+                        onChange={(e) => handleChange('botToken', e.target.value)}
+                        placeholder="123456789:AAH..."
+                        className="w-full bg-gray-900/50 border border-gray-700 text-white px-3 py-2.5 rounded-lg focus:border-blue-500 outline-none font-mono text-sm transition-colors"
+                    />
+                </div>
 
-        <div className="flex items-center gap-4 bg-gray-900 p-4 rounded-lg border border-gray-800">
-             <input
-                type="checkbox"
-                id="tg-enable"
-                checked={localConfig.enabled}
-                onChange={(e) => handleChange('enabled', e.target.checked)}
-                className="w-5 h-5 accent-blue-500 rounded cursor-pointer"
-             />
-             <label htmlFor="tg-enable" className="text-white cursor-pointer select-none">Enable Notifications</label>
-        </div>
+                <div>
+                    <label className="block text-xs text-gray-500 mb-1.5 font-bold uppercase tracking-wide">Your Chat ID</label>
+                    <input
+                        type="text"
+                        value={localConfig.chatId}
+                        onChange={(e) => handleChange('chatId', e.target.value)}
+                        placeholder="987654321"
+                        className="w-full bg-gray-900/50 border border-gray-700 text-white px-3 py-2.5 rounded-lg focus:border-blue-500 outline-none font-mono text-sm transition-colors"
+                    />
+                </div>
+            </div>
 
-        <div className="flex gap-4 pt-4">
+            <div className="flex items-center gap-3 bg-gray-900/50 p-3 rounded-lg border border-gray-800">
+                <input
+                    type="checkbox"
+                    id="tg-enable"
+                    checked={localConfig.enabled}
+                    onChange={(e) => handleChange('enabled', e.target.checked)}
+                    className="w-4 h-4 accent-blue-500 rounded cursor-pointer"
+                />
+                <label htmlFor="tg-enable" className="text-gray-300 text-sm cursor-pointer select-none font-medium">Enable Active Notifications</label>
+            </div>
+        </div>
+      </div>
+
+      <div className="space-y-3 mt-8 pt-4 border-t border-gray-800">
+        <div className="flex gap-3">
             <button 
                 onClick={() => onSave(localConfig)}
-                className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-3 rounded-lg transition-all"
+                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-lg transition-all text-sm shadow-lg shadow-blue-900/20"
             >
                 Save Configuration
             </button>
             <button 
                 onClick={handleTestMessage}
                 disabled={testStatus === 'SENDING' || !localConfig.botToken || !localConfig.chatId}
-                className="px-6 bg-gray-700 hover:bg-gray-600 text-gray-200 font-semibold py-3 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-6 bg-gray-700 hover:bg-gray-600 text-gray-200 font-semibold py-2.5 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm border border-gray-600"
             >
                 {testStatus === 'SENDING' ? 'Sending...' : 'Test'}
             </button>
         </div>
         
         {testStatus === 'SUCCESS' && (
-            <div className="bg-green-900/30 border border-green-800 p-3 rounded-lg text-green-400 text-sm text-center">
-                ✅ Test message sent successfully! Check your Telegram.
+            <div className="bg-green-500/10 border border-green-500/20 p-2 rounded text-green-400 text-xs text-center font-medium">
+                ✅ Success! Check your Telegram.
             </div>
         )}
         {testStatus === 'ERROR' && (
-            <div className="bg-red-900/30 border border-red-800 p-3 rounded-lg text-red-400 text-sm text-center">
-                ❌ Failed: {errorMsg}
+            <div className="bg-red-500/10 border border-red-500/20 p-2 rounded text-red-400 text-xs text-center font-medium">
+                ❌ Error: {errorMsg}
             </div>
         )}
       </div>

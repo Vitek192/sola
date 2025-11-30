@@ -1,35 +1,44 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { AppView, StrategyConfig, Token, TelegramConfig, JournalEntry, SystemLog, DeletedToken, RiskAlert, ServerConfig, CustomAlertRule, LifecycleStage, CorrelationRule } from './types';
+import { AppView, StrategyConfig, Token, TelegramConfig, JournalEntry, SystemLog, DeletedToken, RiskAlert, ServerConfig, CustomAlertRule, LifecycleStage, CorrelationRule, User, AIConfig } from './types';
 import { fetchNewSolanaPools, fetchTokenHistory, fetchTokensBatch } from './services/solanaApi'; 
-import { saveHybridState, loadHybridState } from './services/persistence'; // NEW IMPORT
+import { saveHybridState, loadHybridState } from './services/persistence';
+import { getCurrentUser, logout, updateUserProfile } from './services/auth'; 
 import { Scanner } from './components/Scanner';
 import { TokenDetail } from './components/TokenDetail';
 import { StrategyView } from './components/StrategyView';
 import { TelegramSettings } from './components/TelegramSettings';
 import { ServerSettings } from './components/ServerSettings';
+import { AISettings } from './components/AISettings'; // New Import
 import { Portfolio } from './components/Portfolio';
 import { PatternJournal } from './components/PatternJournal';
 import { SignalFeed } from './components/SignalFeed';
 import { SystemLogs } from './components/SystemLogs';
 import { Graveyard } from './components/Graveyard';
 import { RiskFeed } from './components/RiskFeed';
+import { AuthScreen } from './components/AuthScreen';
+import { AdminPanel } from './components/AdminPanel';
 
 const App: React.FC = () => {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  
+  useEffect(() => {
+      const user = getCurrentUser();
+      if (user) setCurrentUser(user);
+  }, []);
+
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
   const [tokens, setTokens] = useState<Token[]>([]);
   const [selectedTokenId, setSelectedTokenId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   
-  // Connection Status State
   const [syncStatus, setSyncStatus] = useState<'ONLINE' | 'LOCAL' | 'ERROR'>('LOCAL');
   
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [deletedTokens, setDeletedTokens] = useState<DeletedToken[]>([]);
   const [riskAlerts, setRiskAlerts] = useState<RiskAlert[]>([]);
   
-  // --- DEFAULTS ---
   const defaultCustomRules: CustomAlertRule[] = [
       { id: 'rule_pump', name: '🚀 Pump Alert', metric: 'PRICE_CHANGE_5M', condition: 'GT', value: 30, enabled: true },
       { id: 'rule_dump', name: '📉 Dump Alert', metric: 'PRICE_CHANGE_5M', condition: 'LT', value: -20, enabled: true },
@@ -79,7 +88,6 @@ const App: React.FC = () => {
 
   const [telegramConfig, setTelegramConfig] = useState<TelegramConfig>({ botToken: '', chatId: '', enabled: false });
   
-  // UPDATED DEFAULT SERVER CONFIG
   const defaultServerConfig: ServerConfig = { 
       url: 'http://46.32.79.231:3002', 
       apiKey: 'solana-sniper-secret-2024', 
@@ -88,10 +96,18 @@ const App: React.FC = () => {
   };
   const [serverConfig, setServerConfig] = useState<ServerConfig>(defaultServerConfig);
 
+  // --- AI CONFIG ---
+  // Default to EMPTY keys for security and user customization
+  const defaultAIConfig: AIConfig = {
+      enabled: true,
+      keys: [] 
+  };
+  const [aiConfig, setAIConfig] = useState<AIConfig>(defaultAIConfig);
+
   const defaultStages: LifecycleStage[] = [
       { id: 'stage_launch', enabled: true, name: '🚀 Launch Zone (0-1h)', description: 'High risk tolerance.', startAgeMinutes: 0, minLiquidity: 500, maxLiquidity: 1000000, minMcap: 0, maxMcap: 10000000, minHolders: 0, maxHolders: 100000, maxTop10Holding: 100 },
-      { id: 'stage_growth', enabled: true, name: '📈 Growth Zone (1h-24h)', description: 'Require higher liquidity.', startAgeMinutes: 60, minLiquidity: 2000, maxLiquidity: 5000000, minMcap: 5000, maxMcap: 50000000, minHolders: 10, maxHolders: 100000, maxTop10Holding: 95 },
-      { id: 'stage_mature', enabled: true, name: '🏰 Mature Zone (>24h)', description: 'Established tokens.', startAgeMinutes: 1440, minLiquidity: 5000, maxLiquidity: 10000000, minMcap: 10000, maxMcap: 100000000, minHolders: 50, maxHolders: 100000, maxTop10Holding: 80 }
+      { id: 'stage_growth', enabled: false, name: '📈 Growth Zone (1h-24h)', description: 'Require higher liquidity.', startAgeMinutes: 60, minLiquidity: 2000, maxLiquidity: 5000000, minMcap: 5000, maxMcap: 50000000, minHolders: 10, maxHolders: 100000, maxTop10Holding: 95 },
+      { id: 'stage_mature', enabled: false, name: '🏰 Mature Zone (>24h)', description: 'Established tokens.', startAgeMinutes: 1440, minLiquidity: 5000, maxLiquidity: 10000000, minMcap: 10000, maxMcap: 100000000, minHolders: 50, maxHolders: 100000, maxTop10Holding: 80 }
   ];
 
   const defaultCorrelations: CorrelationRule[] = [
@@ -110,9 +126,10 @@ const App: React.FC = () => {
 
   const [isScanning, setIsScanning] = useState(true);
 
-  // Refs for access inside intervals
+  // Refs
   const telegramConfigRef = useRef(telegramConfig);
   const serverConfigRef = useRef(serverConfig);
+  const aiConfigRef = useRef(aiConfig);
   const tokensRef = useRef(tokens);
   const strategyRef = useRef(strategy);
   const deletedTokensRef = useRef(deletedTokens);
@@ -121,19 +138,20 @@ const App: React.FC = () => {
 
   useEffect(() => { telegramConfigRef.current = telegramConfig; }, [telegramConfig]);
   useEffect(() => { serverConfigRef.current = serverConfig; }, [serverConfig]);
+  useEffect(() => { aiConfigRef.current = aiConfig; }, [aiConfig]);
   useEffect(() => { tokensRef.current = tokens; }, [tokens]);
   useEffect(() => { strategyRef.current = strategy; }, [strategy]);
   useEffect(() => { deletedTokensRef.current = deletedTokens; }, [deletedTokens]);
   useEffect(() => { customRulesRef.current = customRules; }, [customRules]);
   useEffect(() => { journalRef.current = journalEntries; }, [journalEntries]);
 
-  // --- HYBRID INIT ---
   useEffect(() => {
+    if (!currentUser) return;
+
     const initApp = async () => {
-        // First, check if we have server config in local storage to bootstrap connection
-        // (Simplified: we assume default or previously loaded config)
+        addLog('INFO', `Loading profile for ${currentUser.username}...`);
         
-        const result = await loadHybridState(serverConfig);
+        const result = await loadHybridState(serverConfig, currentUser.id);
         
         if (result.data) {
             const s = result.data;
@@ -143,21 +161,20 @@ const App: React.FC = () => {
             if (s.telegram) setTelegramConfig(s.telegram);
             if (s.customRules) setCustomRules(s.customRules);
             if (s.journal) setJournalEntries(s.journal);
-            
-            if (result.source === 'SERVER') {
-                setSyncStatus('ONLINE');
-                addLog('SUCCESS', 'Connected to Ubuntu Server.');
-            } else {
-                setSyncStatus('LOCAL');
-                addLog('WARNING', 'Server offline. Using Local Mode.');
-            }
+            // Ideally load AI Config here too, but types need consistent update in AppState.
+            // For now, we keep defaults or rely on local storage behavior of component if separated.
+        } else {
+            setTokens([]);
+            setStrategy(defaultStrategy);
+            addLog('INFO', 'New user workspace initialized.');
         }
     };
     initApp();
-  }, []); // Run once
+  }, [currentUser]); 
 
-  // --- UNIFIED SAVE FUNCTION ---
   const triggerAutoSave = async () => {
+      if (!currentUser) return;
+
       const state = {
           tokens: tokensRef.current,
           deletedTokens: deletedTokensRef.current,
@@ -168,19 +185,19 @@ const App: React.FC = () => {
           lastUpdated: Date.now()
       };
 
-      const status = await saveHybridState(serverConfigRef.current, state);
+      const status = await saveHybridState(serverConfigRef.current, state, currentUser.id);
       
       if (status === 'SERVER') setSyncStatus('ONLINE');
       else if (status === 'LOCAL') setSyncStatus('LOCAL');
       else setSyncStatus('ERROR');
   };
 
-  // Auto-save on critical config changes (Debounced)
   useEffect(() => {
-      const timer = setTimeout(triggerAutoSave, 2000);
-      return () => clearTimeout(timer);
-  }, [strategy, telegramConfig, customRules]);
-
+      if (currentUser) {
+          const timer = setTimeout(triggerAutoSave, 2000);
+          return () => clearTimeout(timer);
+      }
+  }, [strategy, telegramConfig, customRules, currentUser, aiConfig]); 
 
   const sendTelegramNotification = async (message: string) => {
     const { botToken, chatId, enabled } = telegramConfigRef.current;
@@ -213,8 +230,6 @@ const App: React.FC = () => {
       const now = Date.now();
 
       currentTokens.forEach(token => {
-          // Reset only risk flags that are transient, but keep persistent ones if needed. 
-          // For simplicity we rebuild risk state each cycle.
           token.activeRisk = undefined; 
           
           const latest = token.history[token.history.length - 1];
@@ -228,7 +243,6 @@ const App: React.FC = () => {
           const maxLiq = token.strategyOverride?.maxLiquidity ?? currentStage.maxLiquidity;
           const maxMcap = token.strategyOverride?.maxMcap ?? currentStage.maxMcap;
 
-          // Correlation Logic
           if (correlations) {
               const triggeredDetails: string[] = [];
               correlations.forEach(corr => {
@@ -284,7 +298,7 @@ const App: React.FC = () => {
   };
 
   const runMarketCycle = async () => {
-    if (!isScanning) return;
+    if (!isScanning || !currentUser) return;
     setIsLoading(true);
     setApiError(null);
     
@@ -323,8 +337,6 @@ const App: React.FC = () => {
         });
 
         setTokens(finalList);
-        
-        // --- TRIGGER SAVE AFTER SCAN ---
         await triggerAutoSave();
         
     } catch (e: any) {
@@ -334,11 +346,10 @@ const App: React.FC = () => {
     }
   };
 
-  useEffect(() => { runMarketCycle(); }, []);
   useEffect(() => { 
       const interval = setInterval(runMarketCycle, 60000); 
       return () => clearInterval(interval);
-  }, [isScanning]);
+  }, [isScanning, currentUser]);
 
   const handleDeepScan = async (token: Token) => {
       setSelectedTokenId(token.id);
@@ -359,9 +370,29 @@ const App: React.FC = () => {
           setStrategy(defaultStrategy);
           setCustomRules(defaultCustomRules);
           setServerConfig(defaultServerConfig);
+          setAIConfig(defaultAIConfig);
           addLog('WARNING', 'System settings reset to Factory Defaults.');
       }
   };
+
+  const handleChangePassword = () => {
+      if (!currentUser) return;
+      const newPass = prompt("Enter new password:");
+      if (newPass) {
+          updateUserProfile(currentUser.id, { passwordHash: newPass });
+          alert("Password updated");
+      }
+  };
+
+  const handleLogout = () => {
+      logout();
+      setCurrentUser(null);
+      setTokens([]);
+  };
+
+  if (!currentUser) {
+      return <AuthScreen onLoginSuccess={setCurrentUser} />;
+  }
 
   const selectedToken = tokens.find(t => t.id === selectedTokenId) || null;
 
@@ -374,7 +405,10 @@ const App: React.FC = () => {
               <div className="bg-gradient-to-r from-solana-green to-solana-purple w-8 h-8 rounded-lg flex items-center justify-center shadow-lg shadow-solana-green/20">
                 <span className="text-white font-bold">S</span>
               </div>
-              <span className="font-bold text-xl tracking-tight text-white hidden sm:block">SolanaSniper<span className="text-solana-purple">AI</span></span>
+              <div className="hidden sm:flex flex-col">
+                  <span className="font-bold text-xl tracking-tight text-white leading-none">SolanaSniper<span className="text-solana-purple">AI</span></span>
+                  <span className="text-[10px] text-gray-500 leading-none">User: {currentUser.username} {currentUser.role === 'ADMIN' && '(Super)'}</span>
+              </div>
             </div>
             
             <div className="flex space-x-1 bg-gray-800 p-1 rounded-lg overflow-x-auto no-scrollbar max-w-[50vw]">
@@ -384,10 +418,14 @@ const App: React.FC = () => {
                         {view === AppView.ALERTS && riskAlerts.length > 0 && <span className="ml-1 bg-red-500 text-[10px] px-1.5 rounded-full">{riskAlerts.length}</span>}
                     </button>
                 ))}
+                {currentUser.role === 'ADMIN' && (
+                    <button onClick={() => setCurrentView(AppView.ADMIN_PANEL)} className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap text-purple-400 hover:text-purple-300 ${currentView === AppView.ADMIN_PANEL ? 'bg-purple-900/50' : ''}`}>
+                        Admin
+                    </button>
+                )}
             </div>
 
             <div className="flex items-center space-x-3">
-                {/* Connection Status Indicator */}
                 <div className={`flex items-center gap-1.5 px-2 py-1 rounded border text-[10px] uppercase font-bold tracking-wide transition-all ${
                     syncStatus === 'ONLINE' ? 'bg-green-900/30 border-green-800 text-green-400' : 
                     syncStatus === 'LOCAL' ? 'bg-orange-900/30 border-orange-800 text-orange-400' :
@@ -401,6 +439,12 @@ const App: React.FC = () => {
                     <span className={`w-2 h-2 rounded-full ${isScanning ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`}></span>
                     {isScanning ? 'Live' : 'Paused'}
                 </button>
+                
+                <button onClick={handleLogout} className="bg-gray-800 hover:bg-gray-700 p-2 rounded text-gray-400 hover:text-white" title="Logout">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
+                </button>
             </div>
           </div>
         </div>
@@ -408,47 +452,81 @@ const App: React.FC = () => {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {selectedToken ? (
-            <TokenDetail token={selectedToken} onUpdateToken={handleUpdateToken} onBack={() => setSelectedTokenId(null)} />
+            <TokenDetail token={selectedToken} onUpdateToken={handleUpdateToken} onBack={() => setSelectedTokenId(null)} aiConfig={aiConfig} />
         ) : (
             <>
                 {currentView === AppView.DASHBOARD && <Scanner tokens={tokens} onSelectToken={handleDeepScan} deletedTokens={deletedTokens} />}
                 {currentView === AppView.STRATEGY && <StrategyView config={strategy} setConfig={setStrategy} />}
-                {currentView === AppView.SIGNALS && <SignalFeed tokens={tokens} onUpdateToken={handleUpdateToken} onSelectToken={handleDeepScan} minConfidence={strategy.minAIConfidence} />}
+                {currentView === AppView.SIGNALS && <SignalFeed tokens={tokens} onUpdateToken={handleUpdateToken} onSelectToken={handleDeepScan} minConfidence={strategy.minAIConfidence} aiConfig={aiConfig} />}
                 {currentView === AppView.PORTFOLIO && <Portfolio tokens={tokens} onSelectToken={handleDeepScan} />}
                 {currentView === AppView.ALERTS && <RiskFeed alerts={riskAlerts} onClear={() => setRiskAlerts([])} rules={customRules} onAddRule={(r) => setCustomRules([...customRules, r])} onDeleteRule={(id) => setCustomRules(customRules.filter(r => r.id !== id))} onToggleRule={(id) => setCustomRules(customRules.map(r => r.id === id ? {...r, enabled: !r.enabled} : r))} />}
-                {currentView === AppView.JOURNAL && <PatternJournal tokens={tokens} entries={journalEntries} onAddEntry={handleAddJournalEntry} />}
+                {currentView === AppView.JOURNAL && <PatternJournal tokens={tokens} entries={journalEntries} onAddEntry={handleAddJournalEntry} aiConfig={aiConfig} />}
                 {currentView === AppView.LOGS && <SystemLogs logs={logs} />}
                 {currentView === AppView.GRAVEYARD && <Graveyard deletedTokens={deletedTokens} />}
+                {currentView === AppView.ADMIN_PANEL && <AdminPanel />}
                 {currentView === AppView.SETTINGS && (
-                    <div className="space-y-8 animate-fade-in">
-                        <TelegramSettings config={telegramConfig} onSave={setTelegramConfig} />
-                        <ServerSettings 
-                            config={serverConfig} 
-                            onSave={setServerConfig} 
-                            onForceLoad={() => {
-                                // Manual force load logic (Simplified)
-                                loadHybridState(serverConfig).then(res => {
-                                    if(res.data) {
-                                        setTokens(res.data.tokens);
-                                        setDeletedTokens(res.data.deletedTokens);
-                                        setStrategy(res.data.strategy);
-                                        setCustomRules(res.data.customRules || defaultCustomRules);
-                                        addLog('SUCCESS', 'Manual Load Complete');
-                                    }
-                                });
-                            }} 
-                            onForceSave={triggerAutoSave} 
-                        />
+                    <div className="space-y-6 animate-fade-in">
+                        <div className="bg-gray-850 p-6 rounded-xl border border-gray-750 shadow-lg">
+                            <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                                👤 My Profile
+                            </h2>
+                            <div className="flex flex-col md:flex-row justify-between items-center bg-gray-900/50 p-4 rounded-lg border border-gray-800">
+                                <div className="mb-4 md:mb-0">
+                                    <p className="text-gray-400 text-xs uppercase font-bold tracking-wider mb-1">Current Session</p>
+                                    <p className="text-white font-bold text-lg flex items-center gap-2">
+                                        {currentUser.username} 
+                                        <span className="text-gray-500 text-sm font-normal">({currentUser.email})</span>
+                                        {currentUser.role === 'ADMIN' && <span className="bg-purple-900/50 text-purple-300 text-[10px] px-2 py-0.5 rounded border border-purple-800">SUPER ADMIN</span>}
+                                    </p>
+                                </div>
+                                <button onClick={handleChangePassword} className="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-lg text-sm text-gray-200 border border-gray-700 transition-all hover:border-gray-500">
+                                    Change Password
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                            
+                            {/* NEW: AI Settings Card */}
+                            <div className="h-full">
+                                <AISettings config={aiConfig} onSave={setAIConfig} />
+                            </div>
+
+                            <div className="h-full">
+                                <TelegramSettings config={telegramConfig} onSave={setTelegramConfig} />
+                            </div>
+
+                            <div className="h-full xl:col-span-2">
+                                <ServerSettings 
+                                    config={serverConfig} 
+                                    onSave={setServerConfig} 
+                                    onForceLoad={() => {
+                                        loadHybridState(serverConfig, currentUser.id).then(res => {
+                                            if(res.data) {
+                                                setTokens(res.data.tokens);
+                                                setDeletedTokens(res.data.deletedTokens);
+                                                setStrategy(res.data.strategy);
+                                                setCustomRules(res.data.customRules || defaultCustomRules);
+                                                addLog('SUCCESS', 'Manual Load Complete');
+                                            }
+                                        });
+                                    }} 
+                                    onForceSave={triggerAutoSave} 
+                                />
+                            </div>
+                        </div>
                         
-                        {/* Danger Zone: Factory Reset */}
-                        <div className="bg-red-900/10 border border-red-900/50 p-6 rounded-xl max-w-2xl mx-auto flex justify-between items-center">
-                            <div>
-                                <h3 className="text-red-400 font-bold text-lg">⚠️ Danger Zone</h3>
-                                <p className="text-gray-500 text-sm">Reset strategy, rules, and server to default settings.</p>
+                        <div className="bg-red-900/5 border border-red-900/20 p-6 rounded-xl flex flex-col md:flex-row justify-between items-center gap-4 shadow-lg shadow-red-900/5">
+                            <div className="flex items-center gap-4">
+                                <div className="bg-red-900/20 p-3 rounded-full text-2xl border border-red-900/30">⚠️</div>
+                                <div>
+                                    <h3 className="text-red-400 font-bold text-lg">Danger Zone</h3>
+                                    <p className="text-gray-500 text-sm">Reset strategy, rules, and server to default settings. Cannot be undone.</p>
+                                </div>
                             </div>
                             <button 
                                 onClick={handleFactoryReset}
-                                className="px-4 py-2 bg-red-900/30 hover:bg-red-900/50 text-red-400 border border-red-800/50 rounded-lg font-bold transition-all"
+                                className="px-6 py-3 bg-red-900/20 hover:bg-red-900/40 text-red-400 border border-red-800/50 rounded-lg font-bold transition-all whitespace-nowrap shadow-inner"
                             >
                                 ♻️ Reset to Defaults
                             </button>

@@ -11,15 +11,18 @@ export interface AppState {
     lastUpdated: number;
 }
 
-const LOCAL_STORAGE_KEY = 'solana_sniper_v2_state';
-
 const getBaseUrl = (config: ServerConfig) => {
     return config.url.replace(/\/$/, ""); 
 };
 
+// Get isolated key for user
+const getStorageKey = (userId?: string) => {
+    return userId ? `solana_sniper_state_${userId}` : 'solana_sniper_v2_state';
+};
+
 // --- CORE UTILS ---
 
-export const saveLocalState = (state: Partial<AppState>) => {
+export const saveLocalState = (state: Partial<AppState>, userId?: string) => {
     try {
         const cleanState = {
             ...state,
@@ -29,7 +32,7 @@ export const saveLocalState = (state: Partial<AppState>) => {
             })),
             deletedTokens: state.deletedTokens?.slice(0, 200)
         };
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(cleanState));
+        localStorage.setItem(getStorageKey(userId), JSON.stringify(cleanState));
         return true;
     } catch (e) {
         console.warn("Local Save Failed:", e);
@@ -37,9 +40,9 @@ export const saveLocalState = (state: Partial<AppState>) => {
     }
 };
 
-export const loadLocalState = (): AppState | null => {
+export const loadLocalState = (userId?: string): AppState | null => {
     try {
-        const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+        const raw = localStorage.getItem(getStorageKey(userId));
         if (!raw) return null;
         return JSON.parse(raw);
     } catch (e) {
@@ -50,23 +53,19 @@ export const loadLocalState = (): AppState | null => {
 
 // --- HYBRID SYNC ENGINE ---
 
-/**
- * Tries to save to Ubuntu Server first. 
- * If fails or disabled, saves to LocalStorage.
- * Returns 'SERVER' | 'LOCAL' | 'FAILED'
- */
-export const saveHybridState = async (config: ServerConfig, state: AppState): Promise<'SERVER' | 'LOCAL' | 'FAILED'> => {
+export const saveHybridState = async (config: ServerConfig, state: AppState, userId?: string): Promise<'SERVER' | 'LOCAL' | 'FAILED'> => {
     // 1. Try Server
     if (config.enabled && config.url) {
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout for fast UI
+            const timeoutId = setTimeout(() => controller.abort(), 3000); 
 
             const response = await fetch(`${getBaseUrl(config)}/api/save`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${config.apiKey}`
+                    'Authorization': `Bearer ${config.apiKey}`,
+                    'X-User-ID': userId || 'default'
                 },
                 body: JSON.stringify(state),
                 signal: controller.signal
@@ -75,8 +74,7 @@ export const saveHybridState = async (config: ServerConfig, state: AppState): Pr
             clearTimeout(timeoutId);
 
             if (response.ok) {
-                // Also save local as backup cache, but don't block
-                saveLocalState(state);
+                saveLocalState(state, userId);
                 return 'SERVER';
             }
         } catch (e) {
@@ -85,15 +83,11 @@ export const saveHybridState = async (config: ServerConfig, state: AppState): Pr
     }
 
     // 2. Fallback to Local
-    const localSuccess = saveLocalState(state);
+    const localSuccess = saveLocalState(state, userId);
     return localSuccess ? 'LOCAL' : 'FAILED';
 };
 
-/**
- * Tries to load from Server first.
- * If fails, loads from LocalStorage.
- */
-export const loadHybridState = async (config: ServerConfig): Promise<{ data: AppState | null, source: 'SERVER' | 'LOCAL' | 'NONE' }> => {
+export const loadHybridState = async (config: ServerConfig, userId?: string): Promise<{ data: AppState | null, source: 'SERVER' | 'LOCAL' | 'NONE' }> => {
     // 1. Try Server
     if (config.enabled && config.url) {
         try {
@@ -102,7 +96,10 @@ export const loadHybridState = async (config: ServerConfig): Promise<{ data: App
 
             const response = await fetch(`${getBaseUrl(config)}/api/load`, {
                 method: 'GET',
-                headers: { 'Authorization': `Bearer ${config.apiKey}` },
+                headers: { 
+                    'Authorization': `Bearer ${config.apiKey}`,
+                    'X-User-ID': userId || 'default'
+                },
                 signal: controller.signal
             });
             
@@ -118,7 +115,7 @@ export const loadHybridState = async (config: ServerConfig): Promise<{ data: App
     }
 
     // 2. Fallback to Local
-    const localData = loadLocalState();
+    const localData = loadLocalState(userId);
     if (localData) {
         return { data: localData as AppState, source: 'LOCAL' };
     }

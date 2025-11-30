@@ -1,26 +1,36 @@
 
 import React, { useState } from 'react';
-import { JournalEntry, JournalCategoryType, Token } from '../types';
+import { JournalEntry, JournalCategoryType, Token, AIConfig } from '../types';
 import { generateDailyJournal } from '../services/gemini';
 
 interface Props {
   tokens: Token[];
   entries: JournalEntry[];
   onAddEntry: (entry: JournalEntry) => void;
+  aiConfig: AIConfig; // New Prop
 }
 
-export const PatternJournal: React.FC<Props> = ({ tokens, entries, onAddEntry }) => {
+export const PatternJournal: React.FC<Props> = ({ tokens, entries, onAddEntry, aiConfig }) => {
   const [generating, setGenerating] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(entries.length > 0 ? entries[0].id : null);
 
   const handleGenerateReport = async () => {
-    if (tokens.length === 0) {
-        alert("No tokens to analyze. Wait for the scanner to collect data.");
+    // 1. Check AI Keys first
+    const hasActiveKeys = aiConfig.enabled && aiConfig.keys.some(k => k.enabled);
+    if (!hasActiveKeys) {
+        alert("⚠️ AI Мозг не подключен!\nПожалуйста, перейдите в Settings -> AI Keyring и добавьте хотя бы один активный API ключ (Gemini или OpenRouter).");
         return;
     }
+
+    // 2. Check Tokens
+    if (tokens.length === 0) {
+        alert("Нет данных для анализа. Подождите, пока сканер соберет информацию о монетах.");
+        return;
+    }
+
     setGenerating(true);
     try {
-        const report = await generateDailyJournal(tokens);
+        const report = await generateDailyJournal(tokens, aiConfig);
         const newEntry: JournalEntry = {
             id: Date.now().toString(),
             date: Date.now(),
@@ -29,8 +39,8 @@ export const PatternJournal: React.FC<Props> = ({ tokens, entries, onAddEntry })
         };
         onAddEntry(newEntry);
         setExpandedId(newEntry.id);
-    } catch (e) {
-        alert("Failed to generate report. Check API Key or Console.");
+    } catch (e: any) {
+        alert("Ошибка генерации отчета: " + e.message);
     } finally {
         setGenerating(false);
     }
@@ -51,7 +61,6 @@ export const PatternJournal: React.FC<Props> = ({ tokens, entries, onAddEntry })
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header / Actions */}
       <div className="bg-gray-850 p-6 rounded-xl border border-gray-750 flex flex-col md:flex-row justify-between items-center gap-4">
         <div>
             <h2 className="text-2xl font-bold text-white flex items-center gap-2">
@@ -85,7 +94,6 @@ export const PatternJournal: React.FC<Props> = ({ tokens, entries, onAddEntry })
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6">
-        {/* Sidebar: Entry List */}
         <div className="w-full lg:w-1/4 space-y-3">
             {entries.length === 0 && <div className="text-gray-500 text-center py-4">No entries yet.</div>}
             {entries.map(entry => (
@@ -105,7 +113,6 @@ export const PatternJournal: React.FC<Props> = ({ tokens, entries, onAddEntry })
             ))}
         </div>
 
-        {/* Main Content: Selected Entry */}
         <div className="flex-1">
             {expandedId && entries.find(e => e.id === expandedId) ? (
                 (() => {
@@ -136,9 +143,7 @@ export const PatternJournal: React.FC<Props> = ({ tokens, entries, onAddEntry })
                                             </div>
                                         </div>
                                         
-                                        <p className="text-gray-200 mb-4 leading-relaxed">
-                                            {pattern.description}
-                                        </p>
+                                        <p className="text-gray-200 mb-4 leading-relaxed">{pattern.description}</p>
 
                                         <div className="bg-black/20 rounded p-4">
                                             <h4 className="text-xs uppercase font-bold opacity-70 mb-2">Key Indicators Detected:</h4>
