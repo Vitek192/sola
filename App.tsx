@@ -132,8 +132,9 @@ const App: React.FC = () => {
 
   const [telegramConfig, setTelegramConfig] = useState<TelegramConfig>({ botToken: '', chatId: '', enabled: false });
   
+  // UPDATED DEFAULT SERVER CONFIG
   const defaultServerConfig: ServerConfig = { 
-      url: 'http://46.32.79.231:3002', 
+      url: 'http://155.212.217.21:3002', 
       apiKey: 'solana-sniper-secret-2024', 
       autoSave: true, 
       enabled: true 
@@ -571,25 +572,27 @@ const App: React.FC = () => {
                                 <TelegramSettings config={telegramConfig} onSave={setTelegramConfig} />
                             </div>
 
-                            <div className="h-full xl:col-span-2">
-                                <ServerSettings 
-                                    config={serverConfig} 
-                                    onSave={setServerConfig} 
-                                    onForceLoad={() => {
-                                        loadHybridState(serverConfig, currentUser.id).then(res => {
-                                            if(res.data) {
-                                                setTokens(res.data.tokens);
-                                                setDeletedTokens(res.data.deletedTokens);
-                                                setStrategy(res.data.strategy);
-                                                setCustomRules(res.data.customRules || defaultCustomRules);
-                                                if (res.data.aiConfig) setAIConfig(res.data.aiConfig);
-                                                addLog('SUCCESS', 'Manual Load Complete');
-                                            }
-                                        });
-                                    }} 
-                                    onForceSave={triggerAutoSave} 
-                                />
-                            </div>
+                            {currentUser.role === 'ADMIN' && (
+                                <div className="h-full xl:col-span-2">
+                                    <ServerSettings 
+                                        config={serverConfig} 
+                                        onSave={setServerConfig} 
+                                        onForceLoad={() => {
+                                            loadHybridState(serverConfig, currentUser.id).then(res => {
+                                                if(res.data) {
+                                                    setTokens(res.data.tokens);
+                                                    setDeletedTokens(res.data.deletedTokens);
+                                                    setStrategy(res.data.strategy);
+                                                    setCustomRules(res.data.customRules || defaultCustomRules);
+                                                    if (res.data.aiConfig) setAIConfig(res.data.aiConfig);
+                                                    addLog('SUCCESS', 'Manual Load Complete');
+                                                }
+                                            });
+                                        }} 
+                                        onForceSave={triggerAutoSave} 
+                                    />
+                                </div>
+                            )}
                         </div>
                         
                         <div className="bg-red-900/5 border border-red-900/20 p-6 rounded-xl flex flex-col md:flex-row justify-between items-center gap-4 shadow-lg shadow-red-900/5">

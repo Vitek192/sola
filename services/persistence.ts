@@ -1,4 +1,5 @@
 
+
 import { ServerConfig, Token, DeletedToken, JournalEntry, StrategyConfig, TelegramConfig, CustomAlertRule, AIKey, AIConfig, AppState } from '../types';
 
 const getBaseUrl = (config: ServerConfig) => {
@@ -38,6 +39,47 @@ export const loadLocalState = (userId?: string): AppState | null => {
     } catch (e) {
         console.error("Local Load Failed:", e);
         return null;
+    }
+};
+
+// --- SERVER TEST ---
+export const testServerConnection = async (config: ServerConfig): Promise<{ success: boolean; message: string }> => {
+    if (!config.url) return { success: false, message: 'URL is empty' };
+    
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 sec timeout
+
+        // We try to load 'dummy' data just to check auth and reachability
+        const response = await fetch(`${getBaseUrl(config)}/api/load`, {
+            method: 'GET',
+            headers: { 
+                'Authorization': `Bearer ${config.apiKey}`,
+                'X-User-ID': 'connection_test_probe'
+            },
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+
+        if (response.status === 403) {
+            return { success: false, message: '🔐 Invalid Secret Key (403)' };
+        }
+
+        if (response.status === 500) {
+            return { success: false, message: '🗄️ Database Error (500) - Check Postgres' };
+        }
+        
+        if (response.ok || response.status === 404) {
+            // 404 is fine (user not found), it means server is reachable and auth worked
+            return { success: true, message: '🟢 Online & Ready' };
+        }
+
+        return { success: false, message: `Server Error: ${response.status}` };
+    } catch (e: any) {
+        if (e.name === 'AbortError') return { success: false, message: '⏱️ Timeout (5s) - Server slow or blocked' };
+        if (e.message && e.message.includes('Failed to fetch')) return { success: false, message: '🚫 Network Error (Check IP/Firewall)' };
+        return { success: false, message: `⚠️ Error: ${e.message}` };
     }
 };
 
