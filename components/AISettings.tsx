@@ -25,7 +25,7 @@ export const AISettings: React.FC<Props> = ({ config, onSave }) => {
   
   // Custom Dropdown State
   const [showModelDropdown, setShowModelDropdown] = useState(false);
-  const [modelFilterType, setModelFilterType] = useState<'ALL' | 'FREE' | 'PAID'>('ALL'); // NEW FILTER STATE
+  const [modelFilterType, setModelFilterType] = useState<'ALL' | 'FREE' | 'PAID'>('ALL'); 
   const dropdownRef = useRef<HTMLDivElement>(null);
   
   // Track test status per key ID
@@ -168,10 +168,21 @@ export const AISettings: React.FC<Props> = ({ config, onSave }) => {
                                 <div className="flex items-center gap-2">
                                     <span className="text-white font-bold text-sm truncate">{key.name}</span>
                                     <span className="text-[10px] bg-purple-900/30 text-purple-300 px-1.5 rounded border border-purple-900/50">{key.provider}</span>
+                                    {key.isShared && (
+                                        <span className="text-[10px] bg-yellow-900/30 text-yellow-300 px-1.5 rounded border border-yellow-900/50 flex items-center gap-1">
+                                            🔒 Admin Key
+                                        </span>
+                                    )}
                                 </div>
-                                <div className="text-xs text-gray-500 font-mono truncate" title={key.modelId}>
-                                    {key.modelId}
-                                </div>
+                                {key.isShared ? (
+                                    <div className="text-xs text-gray-600 font-mono italic">
+                                        Secret hidden (Managed by Admin)
+                                    </div>
+                                ) : (
+                                    <div className="text-xs text-gray-500 font-mono truncate" title={key.modelId}>
+                                        {key.modelId}
+                                    </div>
+                                )}
                             </div>
                             
                             {/* TEST BUTTON */}
@@ -195,9 +206,12 @@ export const AISettings: React.FC<Props> = ({ config, onSave }) => {
                             <button onClick={() => handleToggleKey(key.id)} className={`text-xs px-2 py-1 rounded border min-w-[35px] ${key.enabled ? 'bg-green-900/20 text-green-400 border-green-900' : 'bg-gray-700 text-gray-400 border-gray-600'}`}>
                                 {key.enabled ? 'ON' : 'OFF'}
                             </button>
-                            <button onClick={(e) => handleDeleteKey(key.id, e)} className="text-gray-500 hover:text-red-400 p-1">
-                                🗑️
-                            </button>
+                            
+                            {!key.isShared && (
+                                <button onClick={(e) => handleDeleteKey(key.id, e)} className="text-gray-500 hover:text-red-400 p-1">
+                                    🗑️
+                                </button>
+                            )}
                         </div>
                         {/* Error Message Display */}
                         {status?.status === 'ERROR' && (

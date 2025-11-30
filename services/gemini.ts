@@ -1,6 +1,7 @@
 
+
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { Token, AIAnalysisResult, JournalEntry, AIConfig, AIKey, AIProvider } from "../types";
+import { Token, AIAnalysisResult, JournalEntry, AIConfig, AIKey, AIProvider, SecurityLog, AISecurityReport, TechnicalAnalysis } from "../types";
 
 // --- PROMPTS ---
 const getAnalysisPrompt = (token: Token, history: any[]) => `
@@ -21,20 +22,66 @@ const getAnalysisPrompt = (token: Token, history: any[]) => `
   3. Output strictly valid JSON matching the schema: { sentiment, riskScore, confidence, patternDetected, reasoning, action }.
 `;
 
-const getJournalPrompt = (summary: any[]) => `
-  You are the Chief Analyst for a Solana Trading Algorithm. 
-  It is midnight. Analyze the performance of these tracked tokens today.
+const getJournalPrompt = (cohorts: any, targetCohort?: string) => `
+  You are the Chief Algo-Architect for a Solana Trading System.
+  ${targetCohort 
+    ? `PERFORM DEEP GRADIENT ANALYTICS ON SPECIFIC COHORT: "${targetCohort}".` 
+    : 'Perform a broad Gradient Analysis of the market data below.'}
 
-  Token Summaries:
-  ${JSON.stringify(summary)}
+  The goal is to find actionable algorithmic rules to filter winners from losers ${targetCohort ? `specifically for tokens aged ${targetCohort}` : 'at each life stage'}.
 
-  Task:
-  1. Group tokens into behavioral categories (Death, Scam, Organic, PumpDump, Accumulation).
-  2. Identify correlation signals.
-  3. Create a journal entry.
+  **Cohort Data (Winners vs Losers):**
+  ${JSON.stringify(cohorts, null, 2)}
 
-  IMPORTANT: Output valid JSON content strictly in RUSSIAN language for values.
-  Schema: { summary: string, patterns: [{ category, description, detectedTokens: [], keyIndicators: [] }] }
+  **Tasks:**
+  1. **Pattern Recognition**: Group tokens into behavioral categories (Death, Scam, Organic, etc.).
+  2. **Gradient Analysis**: ${targetCohort ? `Focus ONLY on ${targetCohort}.` : 'For each time cohort,'} identify specific metric thresholds that separate profitable tokens from failed ones.
+  3. **Rule Generation**: Formulate strictly structured rules for the "Correlation DB". 
+     - Example: "If Age > ${targetCohort || '6h'} AND TxCount < 50 THEN Zombie/Death".
+     - Example: "If Age > ${targetCohort || '1d'} AND Liquidity > 50000 THEN Organic Growth".
+     - **CRITICAL**: The rule must be specific and programmable.
+
+  **Output Language**: Russian (for summary and descriptions).
+  **Output Format**: Strictly Valid JSON matching the schema.
+`;
+
+const getSecurityPrompt = (logs: SecurityLog[]) => `
+  You are a Cybersecurity Expert AI (SOC Analyst).
+  Analyze the following system authentication logs for potential threats.
+  
+  Logs:
+  ${JSON.stringify(logs)}
+
+  Look for:
+  1. Brute Force patterns (multiple failures from same IP/User).
+  2. Distributed attacks (failures from different IPs targeting one user).
+  3. Admin account targeting.
+  4. Anomalous timing.
+
+  Output strictly valid JSON in Russian:
+  {
+    "threatLevel": "LOW" | "MEDIUM" | "HIGH" | "CRITICAL",
+    "summary": "Short explanation of findings",
+    "threats": ["List of specific suspicious patterns detected"],
+    "recommendations": ["Actionable steps to fix"]
+  }
+`;
+
+const getTechnicalAnalysisPrompt = (token: Token, candles: any[]) => `
+  You are a Professional Technical Analyst (Chartist).
+  Analyze the price action data for token ${token.symbol}.
+  
+  Price Data (Sequential):
+  ${JSON.stringify(candles)}
+
+  Perform a deep "Candlestick Analysis":
+  1. Identify the CANDLE PATTERN formed in the last few intervals (e.g., Doji, Hammer, Engulfing, Three White Soldiers, Head & Shoulders).
+  2. Determine the current TREND (Bullish, Bearish, Sideways/Consolidation).
+  3. Estimate Support and Resistance levels based on the price history provided.
+  4. Check for RSI status (Approximate based on price moves: sudden jumps = overbought, drops = oversold).
+  
+  Output in RUSSIAN language for the 'summary' and 'candlePattern' names.
+  Format as strict JSON.
 `;
 
 // --- GEMINI SPECIFIC SCHEMA ---
@@ -67,9 +114,49 @@ const GEMINI_JOURNAL_SCHEMA: Schema = {
         },
         required: ['category', 'description', 'detectedTokens', 'keyIndicators']
       }
+    },
+    suggestedRules: {
+        type: Type.ARRAY,
+        items: {
+            type: Type.OBJECT,
+            properties: {
+                cohort: { type: Type.STRING, description: "e.g., '1h', '6h', '1d'" },
+                ruleName: { type: Type.STRING },
+                metric: { type: Type.STRING, enum: ['PRICE_CHANGE_5M', 'PRICE_CHANGE_1H', 'LIQUIDITY', 'VOLUME_24H', 'NET_VOLUME', 'VOL_LIQ_RATIO', 'TX_COUNT'] },
+                condition: { type: Type.STRING, enum: ['GT', 'LT', 'EQ'] },
+                value: { type: Type.NUMBER },
+                explanation: { type: Type.STRING }
+            },
+            required: ['cohort', 'ruleName', 'metric', 'condition', 'value', 'explanation']
+        }
     }
   },
-  required: ['summary', 'patterns']
+  required: ['summary', 'patterns', 'suggestedRules']
+};
+
+const GEMINI_SECURITY_SCHEMA: Schema = {
+    type: Type.OBJECT,
+    properties: {
+        threatLevel: { type: Type.STRING, enum: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] },
+        summary: { type: Type.STRING },
+        threats: { type: Type.ARRAY, items: { type: Type.STRING } },
+        recommendations: { type: Type.ARRAY, items: { type: Type.STRING } }
+    },
+    required: ['threatLevel', 'summary', 'threats', 'recommendations']
+};
+
+const GEMINI_TA_SCHEMA: Schema = {
+    type: Type.OBJECT,
+    properties: {
+        trend: { type: Type.STRING, enum: ['BULLISH', 'BEARISH', 'SIDEWAYS'] },
+        candlePattern: { type: Type.STRING },
+        strength: { type: Type.STRING, enum: ['STRONG', 'WEAK', 'NEUTRAL'] },
+        supportLevel: { type: Type.NUMBER },
+        resistanceLevel: { type: Type.NUMBER },
+        rsiStatus: { type: Type.STRING, enum: ['OVERSOLD', 'OVERBOUGHT', 'NEUTRAL'] },
+        summary: { type: Type.STRING }
+    },
+    required: ['trend', 'candlePattern', 'strength', 'supportLevel', 'resistanceLevel', 'rsiStatus', 'summary']
 };
 
 // --- API HELPERS (Low Level) ---
@@ -119,7 +206,9 @@ export const fetchModels = async (provider: AIProvider, apiKey?: string): Promis
                 }
 
                 // Robust Free Check: ID suffix OR Zero Pricing OR explicit flag
-                const isFree = (m.id && m.id.toLowerCase().endsWith(':free')) || 
+                const idLower = m.id ? m.id.toLowerCase() : "";
+                
+                const isFree = idLower.endsWith(':free') || 
                                (priceInput === 0 && priceOutput === 0) || 
                                m.free === true;
                 
@@ -180,7 +269,7 @@ const callOpenRouter = async (key: AIKey, prompt: string) => {
     const payload: any = {
         "model": key.modelId || "meta-llama/llama-3-8b-instruct:free",
         "messages": [
-            { "role": "system", "content": "You are a financial analyst. Output strictly valid JSON." },
+            { "role": "system", "content": "You are a specialized AI assistant. Output strictly valid JSON." },
             { "role": "user", "content": prompt }
         ]
     };
@@ -265,6 +354,74 @@ const executeWithFailover = async (config: AIConfig, task: (key: AIKey) => Promi
     throw new Error(`All AI keys failed. Last error: ${lastError?.message}`);
 };
 
+// --- DATA PREPARATION FOR GRADIENT ANALYSIS ---
+
+const prepareCohortData = (tokens: Token[]) => {
+    const now = Date.now();
+    // Granular Buckets
+    const cohorts: Record<string, { winners: any[], losers: any[] }> = {
+        '0h-1h': { winners: [], losers: [] },
+        '1h-6h': { winners: [], losers: [] },
+        '6h-12h': { winners: [], losers: [] },
+        '12h-18h': { winners: [], losers: [] },
+        '18h-24h': { winners: [], losers: [] },
+        'Day 2 (24-48h)': { winners: [], losers: [] },
+        'Day 3 (48-72h)': { winners: [], losers: [] },
+        'Day 4 (72-96h)': { winners: [], losers: [] },
+        'Day 5 (96-120h)': { winners: [], losers: [] },
+        'Day 6 (120-144h)': { winners: [], losers: [] },
+        'Day 7 (144-168h)': { winners: [], losers: [] },
+        'Week 1+': { winners: [], losers: [] }
+    };
+
+    tokens.forEach(t => {
+        const ageMs = now - t.createdAt;
+        const ageHours = ageMs / 3600000;
+        const last = t.history[t.history.length - 1];
+        if (!last) return;
+
+        let bucket = 'Week 1+';
+        if (ageHours < 1) bucket = '0h-1h';
+        else if (ageHours < 6) bucket = '1h-6h';
+        else if (ageHours < 12) bucket = '6h-12h';
+        else if (ageHours < 18) bucket = '12h-18h';
+        else if (ageHours < 24) bucket = '18h-24h';
+        else if (ageHours < 48) bucket = 'Day 2 (24-48h)';
+        else if (ageHours < 72) bucket = 'Day 3 (48-72h)';
+        else if (ageHours < 96) bucket = 'Day 4 (72-96h)';
+        else if (ageHours < 120) bucket = 'Day 5 (96-120h)';
+        else if (ageHours < 144) bucket = 'Day 6 (120-144h)';
+        else if (ageHours < 168) bucket = 'Day 7 (144-168h)';
+
+        // simplified metric for AI context saving
+        const simple = {
+            s: t.symbol,
+            priceChange: ((last.price - t.history[0].price)/t.history[0].price * 100).toFixed(1),
+            liq: Math.round(last.liquidity),
+            tx: t.txCount,
+            makers: t.history[t.history.length-1].makers,
+            vol: Math.round(last.volume24h)
+        };
+
+        const isWinner = parseFloat(simple.priceChange) > 10 && simple.liq > 1000;
+        
+        if (isWinner) {
+            cohorts[bucket].winners.push(simple);
+        } else {
+            cohorts[bucket].losers.push(simple);
+        }
+    });
+
+    // Reduce data size if too large for prompt
+    Object.keys(cohorts).forEach(k => {
+        // We allow slightly more data for deep analysis
+        cohorts[k].winners = cohorts[k].winners.slice(0, 10); 
+        cohorts[k].losers = cohorts[k].losers.slice(0, 10); 
+    });
+
+    return cohorts;
+};
+
 // --- PUBLIC METHODS ---
 
 export const analyzeTokenWithGemini = async (token: Token, config: AIConfig): Promise<AIAnalysisResult> => {
@@ -292,26 +449,20 @@ export const analyzeTokenWithGemini = async (token: Token, config: AIConfig): Pr
   });
 };
 
-export const generateDailyJournal = async (tokens: Token[], config: AIConfig): Promise<Omit<JournalEntry, 'id' | 'date'>> => {
+export const generateDailyJournal = async (tokens: Token[], config: AIConfig, targetCohort?: string): Promise<Omit<JournalEntry, 'id' | 'date'>> => {
   if (!config.enabled) {
       throw new Error("AI is disabled.");
   }
 
-  const tokensSummary = tokens.map(t => {
-      const first = t.history[0];
-      const last = t.history[t.history.length - 1];
-      const priceChange = ((last.price - first.price) / first.price) * 100;
-      return {
-        symbol: t.symbol,
-        ageHours: ((Date.now() - t.createdAt) / 3600000).toFixed(1),
-        priceChangePercent: priceChange.toFixed(2),
-        currentLiquidity: last.liquidity,
-        makersTrend: last.makers - first.makers,
-        buySellRatio: (last.buys / (last.sells || 1)).toFixed(2)
-      };
-  });
+  const cohorts = prepareCohortData(tokens);
+  
+  // If targetCohort is specified, we filter the data passed to the prompt to maximize context relevance
+  let dataForPrompt = cohorts;
+  if (targetCohort && cohorts[targetCohort]) {
+      dataForPrompt = { [targetCohort]: cohorts[targetCohort] };
+  }
 
-  const prompt = getJournalPrompt(tokensSummary);
+  const prompt = getJournalPrompt(dataForPrompt, targetCohort);
 
   return executeWithFailover(config, async (key) => {
       if (key.provider === 'GEMINI') {
@@ -321,6 +472,70 @@ export const generateDailyJournal = async (tokens: Token[], config: AIConfig): P
       }
   });
 };
+
+// NEW: Security Analysis
+export const analyzeSecurityLogs = async (logs: SecurityLog[], config: AIConfig): Promise<AISecurityReport> => {
+    if (!config.enabled) {
+        throw new Error("AI is disabled.");
+    }
+    
+    // Filter last 50 relevant logs to save tokens
+    const recentLogs = logs.slice(0, 50);
+    const prompt = getSecurityPrompt(recentLogs);
+
+    return executeWithFailover(config, async (key) => {
+        if (key.provider === 'GEMINI') {
+            return await callGemini(key, prompt, GEMINI_SECURITY_SCHEMA);
+        } else {
+            return await callOpenRouter(key, prompt);
+        }
+    });
+};
+
+// NEW: Technical Analysis
+export const generateTechnicalAnalysis = async (token: Token, config: AIConfig): Promise<TechnicalAnalysis> => {
+    if (!config.enabled) {
+        throw new Error("AI is disabled.");
+    }
+
+    // Get last 50 data points for TA
+    const candles = token.history.slice(-50).map(h => ({
+        time: new Date(h.timestamp).toISOString(),
+        price: h.price,
+        vol: h.volume24h
+    }));
+
+    const prompt = getTechnicalAnalysisPrompt(token, candles);
+
+    const result: TechnicalAnalysis = await executeWithFailover(config, async (key) => {
+        if (key.provider === 'GEMINI') {
+            return await callGemini(key, prompt, GEMINI_TA_SCHEMA);
+        } else {
+            return await callOpenRouter(key, prompt);
+        }
+    });
+    
+    return { ...result, timestamp: Date.now() };
+};
+
+export interface ComprehensiveReport {
+    signal: AIAnalysisResult;
+    technical: TechnicalAnalysis;
+}
+
+// NEW: Comprehensive Report (Parallel Execution)
+export const generateComprehensiveReport = async (token: Token, config: AIConfig): Promise<ComprehensiveReport> => {
+    if (!config.enabled) throw new Error("AI is disabled");
+
+    // Run both analyses in parallel for speed
+    const [signal, technical] = await Promise.all([
+        analyzeTokenWithGemini(token, config),
+        generateTechnicalAnalysis(token, config)
+    ]);
+
+    return { signal, technical };
+};
+
 
 // --- TEST CONNECTIVITY ---
 export const testKeyConnectivity = async (key: AIKey): Promise<{ success: boolean; message: string }> => {

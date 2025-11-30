@@ -1,4 +1,5 @@
 
+
 export enum AppView {
   DASHBOARD = 'DASHBOARD',
   STRATEGY = 'STRATEGY',
@@ -46,6 +47,7 @@ export interface AIKey {
     modelId: string;
     name: string;
     enabled: boolean;
+    isShared?: boolean; // Key provided by Admin
 }
 
 export interface AIConfig {
@@ -67,6 +69,17 @@ export interface TokenMetrics {
 
 export type PatternType = 'RUG' | 'MOON' | 'STABLE' | 'VOLATILE';
 
+export interface TechnicalAnalysis {
+    timestamp: number;
+    trend: 'BULLISH' | 'BEARISH' | 'SIDEWAYS';
+    candlePattern: string; // e.g., "Hammer", "Doji", "Engulfing"
+    strength: 'STRONG' | 'WEAK' | 'NEUTRAL';
+    supportLevel: number;
+    resistanceLevel: number;
+    rsiStatus: 'OVERSOLD' | 'OVERBOUGHT' | 'NEUTRAL';
+    summary: string;
+}
+
 export interface Token {
   id: string;
   symbol: string;
@@ -78,6 +91,7 @@ export interface Token {
   status: 'TRACKING' | 'FILTERED_OUT' | 'BUY_SIGNAL' | 'SELL_SIGNAL';
   patternType: PatternType; 
   aiAnalysis?: AIAnalysisResult;
+  technicalAnalysis?: TechnicalAnalysis; // NEW FIELD
   
   isPumpFun: boolean;
   pumpFunUrl?: string;
@@ -197,9 +211,63 @@ export interface JournalPattern {
   keyIndicators: string[];
 }
 
+export interface SuggestedRule {
+    cohort: string;
+    ruleName: string;
+    metric: AlertMetric;
+    condition: 'GT' | 'LT' | 'EQ';
+    value: number;
+    explanation: string;
+}
+
 export interface JournalEntry {
   id: string;
   date: number;
   summary: string;
   patterns: JournalPattern[];
+  suggestedRules?: SuggestedRule[];
+}
+
+// --- SECURITY TYPES ---
+
+export interface SecurityConfig {
+    maxLoginAttempts: number;
+    lockoutDurationMinutes: number;
+}
+
+export interface BlockedEntity {
+    id: string;
+    target: string; // Username or IP
+    type: 'IP' | 'USER';
+    blockedAt: number;
+    reason: string;
+}
+
+export interface SecurityLog {
+    id: string;
+    timestamp: number;
+    event: 'LOGIN_SUCCESS' | 'LOGIN_FAILED' | 'LOCKOUT' | 'ADMIN_ACTION' | 'THREAT_DETECTED' | 'LOGOUT';
+    username?: string;
+    ip: string;
+    details: string;
+    severity: 'INFO' | 'WARNING' | 'CRITICAL';
+}
+
+export interface AISecurityReport {
+    threatLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+    summary: string;
+    threats: string[];
+    recommendations: string[];
+}
+
+// --- STATE PERSISTENCE ---
+export interface AppState {
+    tokens: Token[];
+    deletedTokens: DeletedToken[];
+    journal: JournalEntry[];
+    strategy: StrategyConfig;
+    telegram: TelegramConfig;
+    customRules?: CustomAlertRule[];
+    aiConfig?: AIConfig; // Added for persistence
+    lastUpdated: number;
 }

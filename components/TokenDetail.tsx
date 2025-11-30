@@ -1,6 +1,7 @@
 
+
 import React, { useState } from 'react';
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, Legend } from 'recharts';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, Legend, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
 import { Token, AIConfig } from '../types';
 import { analyzeTokenWithGemini } from '../services/gemini';
 
@@ -8,10 +9,11 @@ interface Props {
   token: Token;
   onUpdateToken: (t: Token) => void;
   onBack: () => void;
-  aiConfig: AIConfig; // Added Prop
+  aiConfig: AIConfig;
+  onNotify: (msg: string) => void; // Added Notify Prop
 }
 
-export const TokenDetail: React.FC<Props> = ({ token, onUpdateToken, onBack, aiConfig }) => {
+export const TokenDetail: React.FC<Props> = ({ token, onUpdateToken, onBack, aiConfig, onNotify }) => {
   const [analyzing, setAnalyzing] = useState(false);
   const [showGrowthChart, setShowGrowthChart] = useState(false); 
 
@@ -27,6 +29,17 @@ export const TokenDetail: React.FC<Props> = ({ token, onUpdateToken, onBack, aiC
     try {
         const analysis = await analyzeTokenWithGemini(token, aiConfig);
         onUpdateToken({ ...token, aiAnalysis: analysis, status: analysis.action === 'BUY' ? 'BUY_SIGNAL' : analysis.action === 'SELL' ? 'SELL_SIGNAL' : 'TRACKING' });
+        
+        // --- TELEGRAM NOTIFICATION FOR SIGNALS ---
+        if (analysis.action === 'BUY' || analysis.action === 'SELL') {
+            const icon = analysis.action === 'BUY' ? '🚀' : '🔻';
+            const msg = `${icon} *AI SIGNAL: ${token.symbol}*\n` +
+                        `Action: *${analysis.action}* (${analysis.confidence}% Conf.)\n` +
+                        `Reason: ${analysis.reasoning}\n` +
+                        `[View Chart](https://dexscreener.com/solana/${token.address})`;
+            onNotify(msg);
+        }
+
     } catch(e: any) {
         alert("AI Error: " + e.message);
     }
@@ -106,13 +119,18 @@ export const TokenDetail: React.FC<Props> = ({ token, onUpdateToken, onBack, aiC
       growth: ((h.price - token.history[0].price) / token.history[0].price) * 100
   }));
 
-  const dayMarkers = [];
-  for(let i=1; i<=7; i++) {
-      dayMarkers.push({
-          time: token.createdAt + (i * 24 * 60 * 60 * 1000),
-          label: `Day ${i}`
-      });
-  }
+  // --- RADAR CHART DATA GENERATION ---
+  // Normalize metrics to 0-100 scale for visual comparison
+  const normalize = (val: number, max: number) => Math.min(100, Math.max(0, (val / max) * 100));
+  
+  const radarData = [
+      { subject: 'Liquidity', A: normalize(latest.liquidity, 500000), fullMark: 100 }, // Max 500k
+      { subject: 'Volume', A: normalize(latest.volume24h, 1000000), fullMark: 100 }, // Max 1M
+      { subject: 'Interest', A: normalize(latest.makers, 500), fullMark: 100 }, // Max 500 makers
+      { subject: 'Stability', A: normalize(100 - Math.abs(token.priceChange5m || 0), 100), fullMark: 100 }, // Low vol = high score
+      { subject: 'Hype', A: normalize(token.txCount, 2000), fullMark: 100 }, // Max 2000 txs
+      { subject: 'Age', A: normalize((Date.now() - token.createdAt) / 3600000, 48), fullMark: 100 }, // Max 48h
+  ];
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -188,6 +206,55 @@ export const TokenDetail: React.FC<Props> = ({ token, onUpdateToken, onBack, aiC
                 </div>
             </div>
 
+            {/* NEW: RISK RADAR CHART */}
+            <div className="bg-gray-850 p-6 rounded-xl border border-gray-750 shadow-lg">
+                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                    🕸️ Risk Radar <span className="text-xs text-gray-500 font-normal">(Visual Analysis)</span>
+                </h3>
+                <div className="flex flex-col md:flex-row items-center">
+                    <div className="h-[250px] w-full md:w-1/2">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
+                                <PolarGrid stroke="#4b5563" />
+                                <PolarAngleAxis dataKey="subject" tick={{ fill: '#9ca3af', fontSize: 10 }} />
+                                <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                                <Radar
+                                    name="Token Metrics"
+                                    dataKey="A"
+                                    stroke="#8884d8"
+                                    strokeWidth={2}
+                                    fill="#8884d8"
+                                    fillOpacity={0.4}
+                                />
+                                <Tooltip 
+                                    contentStyle={{ backgroundColor: '#1a202c', border: '1px solid #2d3748', borderRadius: '4px' }}
+                                    itemStyle={{ color: '#fff' }}
+                                />
+                            </RadarChart>
+                        </ResponsiveContainer>
+                    </div>
+                    <div className="w-full md:w-1/2 pl-0 md:pl-6 text-sm space-y-3">
+                         <div className="p-3 bg-gray-900 rounded border border-gray-800">
+                             <div className="text-gray-500 text-xs uppercase font-bold">Health Score</div>
+                             <div className="flex items-center gap-2">
+                                <div className="text-2xl font-bold text-white">
+                                    {Math.round(radarData.reduce((acc, curr) => acc + curr.A, 0) / 6)}/100
+                                </div>
+                                <div className="h-2 flex-1 bg-gray-700 rounded-full overflow-hidden">
+                                    <div 
+                                        className="h-full bg-gradient-to-r from-red-500 to-green-500" 
+                                        style={{ width: `${Math.round(radarData.reduce((acc, curr) => acc + curr.A, 0) / 6)}%` }}
+                                    ></div>
+                                </div>
+                             </div>
+                         </div>
+                         <p className="text-gray-400 text-xs italic">
+                             * Balanced shapes indicate a healthy token. Spikes in "Hype" without "Liquidity" usually indicate high risk.
+                         </p>
+                    </div>
+                </div>
+            </div>
+
             <div className="bg-gray-850 p-6 rounded-xl border border-gray-750 shadow-lg">
                 <h3 className="text-lg font-bold text-white mb-4">📅 Day-by-Day Lifecycle Log</h3>
                 <div className="overflow-x-auto">
@@ -217,28 +284,6 @@ export const TokenDetail: React.FC<Props> = ({ token, onUpdateToken, onBack, aiC
                             )}
                         </tbody>
                     </table>
-                </div>
-            </div>
-
-            <div className="bg-gray-850 p-6 rounded-xl border border-gray-750 shadow-lg">
-                <div className="mb-4 flex justify-between">
-                    <h3 className="text-lg font-bold text-white">Makers vs Volume Correlation</h3>
-                    <span className="text-xs text-gray-500">Identify Organic Growth vs Bots</span>
-                </div>
-                <div className="h-[250px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={token.history}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#2d3748" vertical={false} />
-                        <XAxis dataKey="timestamp" tickFormatter={formatTime} stroke="#718096" />
-                        <YAxis yAxisId="left" stroke="#8884d8" />
-                        <YAxis yAxisId="right" orientation="right" stroke="#82ca9d" />
-                        <Tooltip contentStyle={{ backgroundColor: '#1a202c', border: '1px solid #2d3748' }} labelFormatter={(label) => new Date(label).toLocaleTimeString()} />
-                        <Legend />
-                        <Bar yAxisId="left" dataKey="buys" name="Buys" fill="#14F195" stackId="a" />
-                        <Bar yAxisId="left" dataKey="sells" name="Sells" fill="#ef4444" stackId="a" />
-                        <Area type="monotone" yAxisId="right" dataKey="makers" name="Makers (Unique)" stroke="#9945FF" fill="none" strokeWidth={2} />
-                    </BarChart>
-                    </ResponsiveContainer>
                 </div>
             </div>
         </div>

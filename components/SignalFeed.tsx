@@ -8,10 +8,11 @@ interface Props {
   onUpdateToken: (t: Token) => void;
   onSelectToken: (t: Token) => void;
   minConfidence: number;
-  aiConfig: AIConfig; // New Prop
+  aiConfig: AIConfig; 
+  onNotify: (msg: string) => void; // Added Notify Prop
 }
 
-export const SignalFeed: React.FC<Props> = ({ tokens, onUpdateToken, onSelectToken, minConfidence, aiConfig }) => {
+export const SignalFeed: React.FC<Props> = ({ tokens, onUpdateToken, onSelectToken, minConfidence, aiConfig, onNotify }) => {
   const [isAutoMining, setIsAutoMining] = useState(false);
 
   const recommendedTokens = tokens.filter(t => 
@@ -55,6 +56,12 @@ export const SignalFeed: React.FC<Props> = ({ tokens, onUpdateToken, onSelectTok
                 status: analysis.action === 'BUY' ? 'BUY_SIGNAL' : analysis.action === 'SELL' ? 'SELL_SIGNAL' : 'TRACKING' 
             };
             onUpdateToken(updatedToken);
+            
+            // --- TELEGRAM ALERT FOR GEMS ---
+            if (analysis.action === 'BUY' && analysis.confidence >= minConfidence) {
+                onNotify(`💎 *AUTO-MINE GEM: ${token.symbol}*\nConfidence: ${analysis.confidence}%\nReason: ${analysis.reasoning}\n[DexScreener](https://dexscreener.com/solana/${token.address})`);
+            }
+
             await new Promise(r => setTimeout(r, 1000));
         } catch (e) {
             console.error("Signal Feed Analysis Error", e);

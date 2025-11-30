@@ -109,7 +109,7 @@ export const AuthScreen: React.FC<Props> = ({ onLoginSuccess }) => {
                     </div>
 
                     {error && (
-                        <div className="bg-red-900/30 border border-red-800 text-red-400 p-3 rounded text-sm text-center animate-pulse">
+                        <div className={`border p-3 rounded text-sm text-center animate-pulse ${error.includes('заблокирован') ? 'bg-red-900/50 border-red-600 text-white font-bold' : 'bg-red-900/30 border-red-800 text-red-400'}`}>
                             {error}
                         </div>
                     )}

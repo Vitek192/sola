@@ -4,12 +4,13 @@ import { AppView, StrategyConfig, Token, TelegramConfig, JournalEntry, SystemLog
 import { fetchNewSolanaPools, fetchTokenHistory, fetchTokensBatch } from './services/solanaApi'; 
 import { saveHybridState, loadHybridState } from './services/persistence';
 import { getCurrentUser, logout, updateUserProfile } from './services/auth'; 
+import { playSound, setMuted } from './services/sound'; // IMPORT SOUND & MUTE
 import { Scanner } from './components/Scanner';
 import { TokenDetail } from './components/TokenDetail';
 import { StrategyView } from './components/StrategyView';
 import { TelegramSettings } from './components/TelegramSettings';
 import { ServerSettings } from './components/ServerSettings';
-import { AISettings } from './components/AISettings'; // New Import
+import { AISettings } from './components/AISettings'; 
 import { Portfolio } from './components/Portfolio';
 import { PatternJournal } from './components/PatternJournal';
 import { SignalFeed } from './components/SignalFeed';
@@ -21,6 +22,7 @@ import { AdminPanel } from './components/AdminPanel';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isMuted, setIsMuted] = useState(false);
   
   useEffect(() => {
       const user = getCurrentUser();
@@ -47,6 +49,31 @@ const App: React.FC = () => {
 
   const [customRules, setCustomRules] = useState<CustomAlertRule[]>(defaultCustomRules);
   
+  // Refs for config access inside callbacks
+  const telegramConfigRef = useRef<TelegramConfig>({ botToken: '', chatId: '', enabled: false });
+
+  // --- SOUND TOGGLE ---
+  const toggleMute = () => {
+      const newState = !isMuted;
+      setIsMuted(newState);
+      setMuted(newState);
+  };
+
+  // --- TELEGRAM SENDER ---
+  const sendTelegramNotification = async (message: string) => {
+    const { botToken, chatId, enabled } = telegramConfigRef.current;
+    if (!enabled || !botToken || !chatId) return;
+    try {
+        const telegramUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
+        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(telegramUrl)}`;
+        await fetch(proxyUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'Markdown' })
+        });
+    } catch (error) { console.error("Telegram Error", error); }
+  };
+
   const addLog = (type: SystemLog['type'], message: string) => {
     const newLog: SystemLog = {
         id: Math.random().toString(36).substr(2, 9),
@@ -55,6 +82,18 @@ const App: React.FC = () => {
         message
     };
     setLogs(prev => [...prev.slice(-199), newLog]); 
+    
+    // SOUND EFFECTS
+    if (type === 'SUCCESS') playSound('SUCCESS');
+    if (type === 'ERROR') playSound('ERROR');
+    if (type === 'WARNING') playSound('ERROR');
+
+    // AUTOMATIC SYSTEM TELEGRAM NOTIFICATIONS
+    // We filter out 'INFO' to avoid spamming "Loading profile..." unless it's critical
+    if ((type === 'WARNING' || type === 'ERROR' || type === 'SUCCESS') && telegramConfigRef.current.enabled) {
+        const icon = type === 'SUCCESS' ? '✅' : type === 'WARNING' ? '⚠️' : '❌';
+        sendTelegramNotification(`${icon} *SYSTEM ${type}*\n${message}`);
+    }
   };
 
   const addRiskAlert = (token: Token, type: RiskAlert['type'], message: string, severity: RiskAlert['severity'], value: string) => {
@@ -74,8 +113,12 @@ const App: React.FC = () => {
       };
       setRiskAlerts(prev => [newAlert, ...prev]);
       
-      if (severity === 'CRITICAL' || type === 'CUSTOM_RULE' || type === 'CORRELATION') {
-          sendTelegramNotification(`🚨 ${type}: ${token.symbol} \n${message} \nVal: ${value}`);
+      // ALERTS ALWAYS GO TO TELEGRAM IF CRITICAL OR CUSTOM
+      if (severity === 'CRITICAL' || type === 'CUSTOM_RULE' || type === 'CORRELATION' || type === 'SCAM_RISK') {
+          playSound('ERROR'); // Critical sound
+          sendTelegramNotification(`🚨 *${type}*: ${token.symbol}\n${message}\nValue: ${value}\n[View Chart](https://dexscreener.com/solana/${token.address})`);
+      } else {
+          playSound('PING'); // Warning sound
       }
   };
 
@@ -84,6 +127,7 @@ const App: React.FC = () => {
   const handleAddJournalEntry = (entry: JournalEntry) => {
       const updated = [entry, ...journalEntries];
       setJournalEntries(updated);
+      playSound('SUCCESS');
   };
 
   const [telegramConfig, setTelegramConfig] = useState<TelegramConfig>({ botToken: '', chatId: '', enabled: false });
@@ -96,8 +140,6 @@ const App: React.FC = () => {
   };
   const [serverConfig, setServerConfig] = useState<ServerConfig>(defaultServerConfig);
 
-  // --- AI CONFIG ---
-  // Default to EMPTY keys for security and user customization
   const defaultAIConfig: AIConfig = {
       enabled: true,
       keys: [] 
@@ -127,7 +169,6 @@ const App: React.FC = () => {
   const [isScanning, setIsScanning] = useState(true);
 
   // Refs
-  const telegramConfigRef = useRef(telegramConfig);
   const serverConfigRef = useRef(serverConfig);
   const aiConfigRef = useRef(aiConfig);
   const tokensRef = useRef(tokens);
@@ -161,11 +202,11 @@ const App: React.FC = () => {
             if (s.telegram) setTelegramConfig(s.telegram);
             if (s.customRules) setCustomRules(s.customRules);
             if (s.journal) setJournalEntries(s.journal);
-            // Ideally load AI Config here too, but types need consistent update in AppState.
-            // For now, we keep defaults or rely on local storage behavior of component if separated.
+            if (s.aiConfig) setAIConfig(s.aiConfig); // Load AI Config
         } else {
             setTokens([]);
             setStrategy(defaultStrategy);
+            setAIConfig(defaultAIConfig); // Set default if new
             addLog('INFO', 'New user workspace initialized.');
         }
     };
@@ -182,6 +223,7 @@ const App: React.FC = () => {
           strategy: strategyRef.current,
           telegram: telegramConfigRef.current,
           customRules: customRulesRef.current,
+          aiConfig: aiConfigRef.current, // Include AI Config in Save
           lastUpdated: Date.now()
       };
 
@@ -198,20 +240,6 @@ const App: React.FC = () => {
           return () => clearTimeout(timer);
       }
   }, [strategy, telegramConfig, customRules, currentUser, aiConfig]); 
-
-  const sendTelegramNotification = async (message: string) => {
-    const { botToken, chatId, enabled } = telegramConfigRef.current;
-    if (!enabled || !botToken || !chatId) return;
-    try {
-        const telegramUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
-        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(telegramUrl)}`;
-        await fetch(proxyUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'Markdown' })
-        });
-    } catch (error) { console.error("Telegram Error", error); }
-  };
 
   const getActiveStage = (ageMs: number, stages: LifecycleStage[]): LifecycleStage => {
       const ageMinutes = ageMs / (1000 * 60);
@@ -285,6 +313,7 @@ const App: React.FC = () => {
 
           if (deleteReason && !token.isOwned) {
               newDeadTokens.push({ ...token, deletedAt: Date.now(), deletionReason: deleteReason });
+              playSound('NUKE');
           } else {
               validTokens.push(token);
           }
@@ -323,9 +352,14 @@ const App: React.FC = () => {
         }
 
         const newPools = await fetchNewSolanaPools();
+        let newCount = 0;
         newPools.forEach(newPool => {
-            if (!updatedTokensMap.has(newPool.id)) updatedTokensMap.set(newPool.id, newPool);
+            if (!updatedTokensMap.has(newPool.id)) {
+                updatedTokensMap.set(newPool.id, newPool);
+                newCount++;
+            }
         });
+        if (newCount > 0) playSound('PING');
 
         let finalList = Array.from(updatedTokensMap.values());
         finalList = processAndFilterTokens(finalList);
@@ -407,12 +441,14 @@ const App: React.FC = () => {
               </div>
               <div className="hidden sm:flex flex-col">
                   <span className="font-bold text-xl tracking-tight text-white leading-none">SolanaSniper<span className="text-solana-purple">AI</span></span>
-                  <span className="text-[10px] text-gray-500 leading-none">User: {currentUser.username} {currentUser.role === 'ADMIN' && '(Super)'}</span>
+                  <span className="text-xs text-gray-500 leading-none mt-1 font-mono">{currentUser.username}</span>
               </div>
             </div>
             
             <div className="flex space-x-1 bg-gray-800 p-1 rounded-lg overflow-x-auto no-scrollbar max-w-[50vw]">
-                {[AppView.DASHBOARD, AppView.STRATEGY, AppView.SIGNALS, AppView.PORTFOLIO, AppView.ALERTS, AppView.JOURNAL, AppView.GRAVEYARD, AppView.LOGS, AppView.SETTINGS].map(view => (
+                {[AppView.DASHBOARD, AppView.STRATEGY, AppView.SIGNALS, AppView.PORTFOLIO, AppView.ALERTS, AppView.JOURNAL, AppView.GRAVEYARD, AppView.LOGS, AppView.SETTINGS]
+                .filter(view => view !== AppView.LOGS || currentUser.username === 'adminsuper')
+                .map(view => (
                     <button key={view} onClick={() => { setSelectedTokenId(null); setCurrentView(view); }} className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${currentView === view ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-white'}`}>
                         {view === AppView.DASHBOARD ? 'Scanner' : view.charAt(0) + view.slice(1).toLowerCase()}
                         {view === AppView.ALERTS && riskAlerts.length > 0 && <span className="ml-1 bg-red-500 text-[10px] px-1.5 rounded-full">{riskAlerts.length}</span>}
@@ -439,8 +475,25 @@ const App: React.FC = () => {
                     <span className={`w-2 h-2 rounded-full ${isScanning ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`}></span>
                     {isScanning ? 'Live' : 'Paused'}
                 </button>
+
+                <button 
+                    onClick={toggleMute} 
+                    className={`bg-gray-800 hover:bg-gray-700 p-2 rounded text-gray-400 hover:text-white border ${isMuted ? 'border-red-900/50 text-red-400' : 'border-gray-700'}`} 
+                    title={isMuted ? "Unmute Sound" : "Mute Sound"}
+                >
+                    {isMuted ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                        </svg>
+                    ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                        </svg>
+                    )}
+                </button>
                 
-                <button onClick={handleLogout} className="bg-gray-800 hover:bg-gray-700 p-2 rounded text-gray-400 hover:text-white" title="Logout">
+                <button onClick={handleLogout} className="bg-gray-800 hover:bg-gray-700 p-2 rounded text-gray-400 hover:text-white border border-gray-700" title="Logout">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                     </svg>
@@ -452,18 +505,41 @@ const App: React.FC = () => {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {selectedToken ? (
-            <TokenDetail token={selectedToken} onUpdateToken={handleUpdateToken} onBack={() => setSelectedTokenId(null)} aiConfig={aiConfig} />
+            <TokenDetail 
+                token={selectedToken} 
+                onUpdateToken={handleUpdateToken} 
+                onBack={() => setSelectedTokenId(null)} 
+                aiConfig={aiConfig} 
+                onNotify={sendTelegramNotification} 
+            />
         ) : (
             <>
-                {currentView === AppView.DASHBOARD && <Scanner tokens={tokens} onSelectToken={handleDeepScan} deletedTokens={deletedTokens} />}
+                {currentView === AppView.DASHBOARD && <Scanner tokens={tokens} onSelectToken={handleDeepScan} deletedTokens={deletedTokens} aiConfig={aiConfig} onNotify={sendTelegramNotification} strategy={strategy} />}
                 {currentView === AppView.STRATEGY && <StrategyView config={strategy} setConfig={setStrategy} />}
-                {currentView === AppView.SIGNALS && <SignalFeed tokens={tokens} onUpdateToken={handleUpdateToken} onSelectToken={handleDeepScan} minConfidence={strategy.minAIConfidence} aiConfig={aiConfig} />}
+                {currentView === AppView.SIGNALS && (
+                    <SignalFeed 
+                        tokens={tokens} 
+                        onUpdateToken={handleUpdateToken} 
+                        onSelectToken={handleDeepScan} 
+                        minConfidence={strategy.minAIConfidence} 
+                        aiConfig={aiConfig}
+                        onNotify={sendTelegramNotification} 
+                    />
+                )}
                 {currentView === AppView.PORTFOLIO && <Portfolio tokens={tokens} onSelectToken={handleDeepScan} />}
                 {currentView === AppView.ALERTS && <RiskFeed alerts={riskAlerts} onClear={() => setRiskAlerts([])} rules={customRules} onAddRule={(r) => setCustomRules([...customRules, r])} onDeleteRule={(id) => setCustomRules(customRules.filter(r => r.id !== id))} onToggleRule={(id) => setCustomRules(customRules.map(r => r.id === id ? {...r, enabled: !r.enabled} : r))} />}
-                {currentView === AppView.JOURNAL && <PatternJournal tokens={tokens} entries={journalEntries} onAddEntry={handleAddJournalEntry} aiConfig={aiConfig} />}
-                {currentView === AppView.LOGS && <SystemLogs logs={logs} />}
+                {currentView === AppView.JOURNAL && (
+                    <PatternJournal 
+                        tokens={tokens} 
+                        entries={journalEntries} 
+                        onAddEntry={handleAddJournalEntry} 
+                        aiConfig={aiConfig} 
+                        onNotify={sendTelegramNotification} 
+                    />
+                )}
+                {currentView === AppView.LOGS && currentUser.username === 'adminsuper' && <SystemLogs logs={logs} />}
                 {currentView === AppView.GRAVEYARD && <Graveyard deletedTokens={deletedTokens} />}
-                {currentView === AppView.ADMIN_PANEL && <AdminPanel />}
+                {currentView === AppView.ADMIN_PANEL && <AdminPanel aiConfig={aiConfig} />}
                 {currentView === AppView.SETTINGS && (
                     <div className="space-y-6 animate-fade-in">
                         <div className="bg-gray-850 p-6 rounded-xl border border-gray-750 shadow-lg">
@@ -487,7 +563,6 @@ const App: React.FC = () => {
 
                         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                             
-                            {/* NEW: AI Settings Card */}
                             <div className="h-full">
                                 <AISettings config={aiConfig} onSave={setAIConfig} />
                             </div>
@@ -507,6 +582,7 @@ const App: React.FC = () => {
                                                 setDeletedTokens(res.data.deletedTokens);
                                                 setStrategy(res.data.strategy);
                                                 setCustomRules(res.data.customRules || defaultCustomRules);
+                                                if (res.data.aiConfig) setAIConfig(res.data.aiConfig);
                                                 addLog('SUCCESS', 'Manual Load Complete');
                                             }
                                         });
