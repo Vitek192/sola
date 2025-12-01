@@ -6,6 +6,7 @@ import { generateComprehensiveReport, ComprehensiveReport } from '../services/ge
 interface Props {
   tokens: Token[];
   onSelectToken: (t: Token) => void;
+  onRemoveToken: (t: Token) => void; // New prop
   deletedTokens?: DeletedToken[];
   aiConfig?: AIConfig;
   onNotify?: (msg: string) => void;
@@ -36,7 +37,7 @@ const isPotentialToken = (t: Token) => {
     return makersGrowth && stablePrice && healthyVol;
 };
 
-export const Scanner: React.FC<Props> = ({ tokens, onSelectToken, deletedTokens = [], aiConfig, onNotify, strategy }) => {
+export const Scanner: React.FC<Props> = ({ tokens, onSelectToken, onRemoveToken, deletedTokens = [], aiConfig, onNotify, strategy }) => {
   const [activeFilter, setActiveFilter] = useState<TimeFilter>('ALL');
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
   const [showPotentialOnly, setShowPotentialOnly] = useState(false);
@@ -394,7 +395,6 @@ export const Scanner: React.FC<Props> = ({ tokens, onSelectToken, deletedTokens 
                     }`}
                 >
                     <span>{showPotentialOnly ? '💎' : '🎯'}</span>
-                    {/* UPDATED LABEL HERE */}
                     {showPotentialOnly ? `Потенциальные: ${potentialCount} (ON)` : `Потенциальные (${potentialCount})`}
                 </button>
             </div>
@@ -566,7 +566,18 @@ export const Scanner: React.FC<Props> = ({ tokens, onSelectToken, deletedTokens 
                                 </button>
                             </td>
 
-                            <td className="px-2 py-2 text-right"><button onClick={() => onSelectToken(token)} className="text-[10px] bg-gray-800 border border-gray-700 hover:border-solana-green text-gray-300 hover:text-white px-2 py-1 rounded transition-all">View</button></td>
+                            <td className="px-2 py-2 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); onRemoveToken(token); }}
+                                        className="text-[10px] bg-gray-900 border border-red-900/30 text-red-400 hover:text-white hover:bg-red-900/40 p-1.5 rounded transition-all"
+                                        title="Remove (Dead)"
+                                    >
+                                        🗑️
+                                    </button>
+                                    <button onClick={() => onSelectToken(token)} className="text-[10px] bg-gray-800 border border-gray-700 hover:border-solana-green text-gray-300 hover:text-white px-2 py-1 rounded transition-all">View</button>
+                                </div>
+                            </td>
                         </tr>
                     );
                 })}

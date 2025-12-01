@@ -362,6 +362,26 @@ const App: React.FC = () => {
       return validTokens;
   };
 
+  const handleManualRemove = (token: Token) => {
+      if(!window.confirm(`Stop tracking ${token.symbol}?\nThis will move the token to the Graveyard as 'Manual Removal (Dead)'.`)) return;
+
+      const deadToken: DeletedToken = {
+          ...token,
+          deletedAt: Date.now(),
+          deletionReason: 'Manual Removal (Dead)'
+      };
+
+      setDeletedTokens(prev => [deadToken, ...prev]);
+      setTokens(prev => prev.filter(t => t.id !== token.id));
+      
+      if (selectedTokenId === token.id) {
+          setSelectedTokenId(null);
+      }
+      
+      playSound('NUKE');
+      addLog('WARNING', `Manually removed ${token.symbol} (Dead)`);
+  };
+
   const runMarketCycle = async () => {
     if (!isScanning || !currentUser) return;
     setIsLoading(true);
@@ -544,13 +564,24 @@ const App: React.FC = () => {
             <TokenDetail 
                 token={selectedToken} 
                 onUpdateToken={handleUpdateToken} 
+                onRemoveToken={handleManualRemove} // Pass removal handler
                 onBack={() => setSelectedTokenId(null)} 
                 aiConfig={aiConfig} 
                 onNotify={sendTelegramNotification} 
             />
         ) : (
             <>
-                {currentView === AppView.DASHBOARD && <Scanner tokens={tokens} onSelectToken={handleDeepScan} deletedTokens={deletedTokens} aiConfig={aiConfig} onNotify={sendTelegramNotification} strategy={strategy} />}
+                {currentView === AppView.DASHBOARD && (
+                    <Scanner 
+                        tokens={tokens} 
+                        onSelectToken={handleDeepScan} 
+                        onRemoveToken={handleManualRemove} // Pass removal handler
+                        deletedTokens={deletedTokens} 
+                        aiConfig={aiConfig} 
+                        onNotify={sendTelegramNotification} 
+                        strategy={strategy} 
+                    />
+                )}
                 {currentView === AppView.STRATEGY && <StrategyView config={strategy} setConfig={setStrategy} />}
                 {currentView === AppView.SIGNALS && (
                     <SignalFeed 

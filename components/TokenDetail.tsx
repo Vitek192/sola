@@ -1,24 +1,23 @@
 
-
 import React, { useState } from 'react';
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, Legend, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
 import { Token, AIConfig } from '../types';
 import { analyzeTokenWithGemini } from '../services/gemini';
 
 interface Props {
   token: Token;
   onUpdateToken: (t: Token) => void;
+  onRemoveToken: (t: Token) => void; // New prop for deletion
   onBack: () => void;
   aiConfig: AIConfig;
-  onNotify: (msg: string) => void; // Added Notify Prop
+  onNotify: (msg: string) => void; 
 }
 
-export const TokenDetail: React.FC<Props> = ({ token, onUpdateToken, onBack, aiConfig, onNotify }) => {
+export const TokenDetail: React.FC<Props> = ({ token, onUpdateToken, onRemoveToken, onBack, aiConfig, onNotify }) => {
   const [analyzing, setAnalyzing] = useState(false);
   const [showGrowthChart, setShowGrowthChart] = useState(false); 
 
   const handleAnalyze = async () => {
-    // Check keys first
     const hasActiveKeys = aiConfig.enabled && aiConfig.keys.some(k => k.enabled);
     if (!hasActiveKeys) {
         alert("⚠️ AI ключи не найдены!\nПерейдите в настройки (Settings) и добавьте API ключ для Gemini или OpenRouter.");
@@ -30,7 +29,6 @@ export const TokenDetail: React.FC<Props> = ({ token, onUpdateToken, onBack, aiC
         const analysis = await analyzeTokenWithGemini(token, aiConfig);
         onUpdateToken({ ...token, aiAnalysis: analysis, status: analysis.action === 'BUY' ? 'BUY_SIGNAL' : analysis.action === 'SELL' ? 'SELL_SIGNAL' : 'TRACKING' });
         
-        // --- TELEGRAM NOTIFICATION FOR SIGNALS ---
         if (analysis.action === 'BUY' || analysis.action === 'SELL') {
             const icon = analysis.action === 'BUY' ? '🚀' : '🔻';
             const msg = `${icon} *AI SIGNAL: ${token.symbol}*\n` +
@@ -119,17 +117,15 @@ export const TokenDetail: React.FC<Props> = ({ token, onUpdateToken, onBack, aiC
       growth: ((h.price - token.history[0].price) / token.history[0].price) * 100
   }));
 
-  // --- RADAR CHART DATA GENERATION ---
-  // Normalize metrics to 0-100 scale for visual comparison
   const normalize = (val: number, max: number) => Math.min(100, Math.max(0, (val / max) * 100));
   
   const radarData = [
-      { subject: 'Liquidity', A: normalize(latest.liquidity, 500000), fullMark: 100 }, // Max 500k
-      { subject: 'Volume', A: normalize(latest.volume24h, 1000000), fullMark: 100 }, // Max 1M
-      { subject: 'Interest', A: normalize(latest.makers, 500), fullMark: 100 }, // Max 500 makers
-      { subject: 'Stability', A: normalize(100 - Math.abs(token.priceChange5m || 0), 100), fullMark: 100 }, // Low vol = high score
-      { subject: 'Hype', A: normalize(token.txCount, 2000), fullMark: 100 }, // Max 2000 txs
-      { subject: 'Age', A: normalize((Date.now() - token.createdAt) / 3600000, 48), fullMark: 100 }, // Max 48h
+      { subject: 'Liquidity', A: normalize(latest.liquidity, 500000), fullMark: 100 }, 
+      { subject: 'Volume', A: normalize(latest.volume24h, 1000000), fullMark: 100 }, 
+      { subject: 'Interest', A: normalize(latest.makers, 500), fullMark: 100 }, 
+      { subject: 'Stability', A: normalize(100 - Math.abs(token.priceChange5m || 0), 100), fullMark: 100 }, 
+      { subject: 'Hype', A: normalize(token.txCount, 2000), fullMark: 100 }, 
+      { subject: 'Age', A: normalize((Date.now() - token.createdAt) / 3600000, 48), fullMark: 100 }, 
   ];
 
   return (
@@ -147,6 +143,15 @@ export const TokenDetail: React.FC<Props> = ({ token, onUpdateToken, onBack, aiC
                 <span className="text-white font-mono font-bold text-solana-green">${latest.liquidity.toLocaleString()}</span>
              </div>
              
+             {/* REMOVE BUTTON */}
+             <button 
+                onClick={() => onRemoveToken(token)}
+                className="px-4 py-2 bg-gray-900 border border-red-900/50 text-red-400 hover:bg-red-900/20 hover:text-red-200 rounded-lg font-bold text-xs transition-colors flex items-center gap-2"
+                title="Mark as Dead and remove from tracking"
+             >
+                💀 Remove (Dead)
+             </button>
+
              <button 
                 onClick={togglePortfolio}
                 className={`px-6 py-2 rounded-lg font-bold shadow-lg transition-transform hover:scale-105 ${
@@ -206,7 +211,7 @@ export const TokenDetail: React.FC<Props> = ({ token, onUpdateToken, onBack, aiC
                 </div>
             </div>
 
-            {/* NEW: RISK RADAR CHART */}
+            {/* RISK RADAR */}
             <div className="bg-gray-850 p-6 rounded-xl border border-gray-750 shadow-lg">
                 <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
                     🕸️ Risk Radar <span className="text-xs text-gray-500 font-normal">(Visual Analysis)</span>
