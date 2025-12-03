@@ -1,7 +1,11 @@
 
+
 import { ServerConfig, Token, DeletedToken, JournalEntry, StrategyConfig, TelegramConfig, CustomAlertRule, AIKey, AIConfig, AppState } from '../types';
 
-const PROXY_URL = 'https://corsproxy.io/?';
+const PROXIES = [
+    'https://corsproxy.io/?',
+    'https://api.allorigins.win/raw?url='
+];
 
 const getBaseUrl = (config: ServerConfig) => {
     return config.url.replace(/\/$/, ""); 
@@ -59,27 +63,37 @@ const fetchWithFallback = async (url: string, options: RequestInit): Promise<{ r
         const res = await fetch(url, { ...options, signal: controller.signal });
         clearTimeout(timeoutId);
         
-        // If we get a response, even 404/500, the connection succeeded (layer 4)
         return { response: res, mode: 'DIRECT' };
     } catch (directError) {
-        // 2. Fallback to Proxy
-        // This usually catches Mixed Content errors or CORS issues
-        console.warn("Direct connection failed, switching to Secure Proxy...", directError);
+        // 2. Fallback to Proxies
+        // This usually catches Mixed Content errors (HTTP server on HTTPS app) or CORS issues
+        console.warn("Direct connection failed, trying proxies...", directError);
         
-        try {
-            const proxyTarget = `${PROXY_URL}${encodeURIComponent(url)}`;
-            // Proxy needs a slightly longer timeout
-            const controllerProxy = new AbortController();
-            const timeoutIdProxy = setTimeout(() => controllerProxy.abort(), 8000);
+        for (const proxy of PROXIES) {
+            try {
+                // If using AllOrigins, note it strips auth headers. 
+                // However, for GET requests it might work for simple checks.
+                // For POST/Auth, corsproxy.io is better.
+                if (proxy.includes('allorigins') && options.headers && ('Authorization' in options.headers || 'X-User-ID' in options.headers)) {
+                    continue; 
+                }
 
-            const res = await fetch(proxyTarget, { ...options, signal: controllerProxy.signal });
-            clearTimeout(timeoutIdProxy);
-            
-            return { response: res, mode: 'PROXY' };
-        } catch (proxyError) {
-            console.error("Proxy connection failed:", proxyError);
-            throw proxyError; // Both failed
+                const proxyTarget = `${proxy}${encodeURIComponent(url)}`;
+                const controllerProxy = new AbortController();
+                const timeoutIdProxy = setTimeout(() => controllerProxy.abort(), 8000);
+
+                const res = await fetch(proxyTarget, { ...options, signal: controllerProxy.signal });
+                clearTimeout(timeoutIdProxy);
+                
+                if (res.ok || res.status === 404 || res.status === 403 || res.status === 500) {
+                     return { response: res, mode: 'PROXY' };
+                }
+            } catch (proxyError) {
+                continue;
+            }
         }
+        
+        throw new Error("All connection methods failed");
     }
 };
 
@@ -115,7 +129,7 @@ export const testServerConnection = async (config: ServerConfig): Promise<{ succ
         return { success: false, message: `Server Error: ${response.status}` };
     } catch (e: any) {
         if (e.name === 'AbortError') return { success: false, message: '⏱️ Timeout - Server Unreachable' };
-        return { success: false, message: `🚫 Connection Failed (Check IP/Firewall)` };
+        return { success: false, message: `🚫 Connection Failed (Blocked)` };
     }
 };
 

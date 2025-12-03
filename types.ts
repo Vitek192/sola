@@ -37,6 +37,23 @@ export interface ServerConfig {
   enabled: boolean;
 }
 
+export interface SolscanConfig {
+  apiKey: string;
+  enabled: boolean;
+}
+
+export interface RpcConfig {
+    rpcUrl: string;
+    enabled: boolean;
+}
+
+export interface ChainInfo {
+    solPrice: number;
+    tps: number;
+    epoch: number;
+    totalTransactions: number;
+}
+
 // --- AI CONFIGURATION ---
 export type AIProvider = 'GEMINI' | 'OPENROUTER' | 'OPENAI' | 'DEEPSEEK';
 
@@ -93,6 +110,8 @@ export interface Token {
   aiAnalysis?: AIAnalysisResult;
   technicalAnalysis?: TechnicalAnalysis; // NEW FIELD
   
+  logoUrl?: string; // NEW: Solscan Meta Logo
+
   isPumpFun: boolean;
   pumpFunUrl?: string;
   priceChange5m: number;
@@ -117,6 +136,11 @@ export interface Token {
   entryTime?: number;
   
   strategyOverride?: Partial<LifecycleStage>; 
+
+  // New Fields for Updates
+  isPinned?: boolean;       // Lock token from deletion & keep at top
+  isManual?: boolean;       // Manually added by user
+  zombieDetectedAt?: number; // Time when zombie rule matched
 }
 
 export interface DeletedToken extends Token {
@@ -268,6 +292,8 @@ export interface AppState {
     strategy: StrategyConfig;
     telegram: TelegramConfig;
     customRules?: CustomAlertRule[];
-    aiConfig?: AIConfig; // Added for persistence
+    aiConfig?: AIConfig;
+    solscan?: SolscanConfig; 
+    rpc?: RpcConfig; // NEW: RPC Config
     lastUpdated: number;
 }

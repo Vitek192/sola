@@ -1,16 +1,22 @@
 
+
+
+
+
 import React, { useState, useEffect, useRef } from 'react';
-import { AppView, StrategyConfig, Token, TelegramConfig, JournalEntry, SystemLog, DeletedToken, RiskAlert, ServerConfig, CustomAlertRule, LifecycleStage, CorrelationRule, User, AIConfig } from './types';
-import { fetchNewSolanaPools, fetchTokenHistory, fetchTokensBatch } from './services/solanaApi'; 
+import { AppView, StrategyConfig, Token, TelegramConfig, JournalEntry, SystemLog, DeletedToken, RiskAlert, ServerConfig, CustomAlertRule, LifecycleStage, CorrelationRule, User, AIConfig, SolscanConfig, RpcConfig, ChainInfo } from './types';
+import { fetchNewSolanaPools, fetchTokenHistory, fetchTokensBatch, fetchTokenByMint, fetchTokenHolders, fetchChainInfo } from './services/solanaApi'; 
 import { saveHybridState, loadHybridState, testServerConnection } from './services/persistence';
 import { getCurrentUser, logout, updateUserProfile } from './services/auth'; 
-import { playSound, setMuted } from './services/sound'; // IMPORT SOUND & MUTE
+import { playSound, setMuted } from './services/sound'; 
 import { Scanner } from './components/Scanner';
 import { TokenDetail } from './components/TokenDetail';
 import { StrategyView } from './components/StrategyView';
 import { TelegramSettings } from './components/TelegramSettings';
 import { ServerSettings } from './components/ServerSettings';
 import { AISettings } from './components/AISettings'; 
+import { SolscanSettings } from './components/SolscanSettings';
+import { RpcSettings } from './components/RpcSettings';
 import { Portfolio } from './components/Portfolio';
 import { PatternJournal } from './components/PatternJournal';
 import { SignalFeed } from './components/SignalFeed';
@@ -41,6 +47,9 @@ const App: React.FC = () => {
   const [deletedTokens, setDeletedTokens] = useState<DeletedToken[]>([]);
   const [riskAlerts, setRiskAlerts] = useState<RiskAlert[]>([]);
   
+  // Chain Info State
+  const [chainInfo, setChainInfo] = useState<ChainInfo | null>(null);
+
   const defaultCustomRules: CustomAlertRule[] = [
       { id: 'rule_pump', name: '🚀 Pump Alert', metric: 'PRICE_CHANGE_5M', condition: 'GT', value: 30, enabled: true },
       { id: 'rule_dump', name: '📉 Dump Alert', metric: 'PRICE_CHANGE_5M', condition: 'LT', value: -20, enabled: true },
@@ -48,29 +57,34 @@ const App: React.FC = () => {
   ];
 
   const [customRules, setCustomRules] = useState<CustomAlertRule[]>(defaultCustomRules);
-  
-  // Refs for config access inside callbacks
   const telegramConfigRef = useRef<TelegramConfig>({ botToken: '', chatId: '', enabled: false });
 
-  // --- SOUND TOGGLE ---
   const toggleMute = () => {
       const newState = !isMuted;
       setIsMuted(newState);
       setMuted(newState);
   };
 
-  // --- TELEGRAM SENDER ---
   const sendTelegramNotification = async (message: string) => {
     const { botToken, chatId, enabled } = telegramConfigRef.current;
     if (!enabled || !botToken || !chatId) return;
     try {
         const telegramUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
-        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(telegramUrl)}`;
-        await fetch(proxyUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'Markdown' })
-        });
+        // Try direct first, then proxy if needed
+        try {
+            await fetch(telegramUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'Markdown' })
+            });
+        } catch {
+            const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(telegramUrl)}`;
+            await fetch(proxyUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'Markdown' })
+            });
+        }
     } catch (error) { console.error("Telegram Error", error); }
   };
 
@@ -82,14 +96,9 @@ const App: React.FC = () => {
         message
     };
     setLogs(prev => [...prev.slice(-199), newLog]); 
-    
-    // SOUND EFFECTS
     if (type === 'SUCCESS') playSound('SUCCESS');
     if (type === 'ERROR') playSound('ERROR');
     if (type === 'WARNING') playSound('ERROR');
-
-    // AUTOMATIC SYSTEM TELEGRAM NOTIFICATIONS
-    // We filter out 'INFO' to avoid spamming "Loading profile..." unless it's critical
     if ((type === 'WARNING' || type === 'ERROR' || type === 'SUCCESS') && telegramConfigRef.current.enabled) {
         const icon = type === 'SUCCESS' ? '✅' : type === 'WARNING' ? '⚠️' : '❌';
         sendTelegramNotification(`${icon} *SYSTEM ${type}*\n${message}`);
@@ -112,18 +121,15 @@ const App: React.FC = () => {
           value
       };
       setRiskAlerts(prev => [newAlert, ...prev]);
-      
-      // ALERTS ALWAYS GO TO TELEGRAM IF CRITICAL OR CUSTOM
       if (severity === 'CRITICAL' || type === 'CUSTOM_RULE' || type === 'CORRELATION' || type === 'SCAM_RISK') {
-          playSound('ERROR'); // Critical sound
+          playSound('ERROR');
           sendTelegramNotification(`🚨 *${type}*: ${token.symbol}\n${message}\nValue: ${value}\n[View Chart](https://dexscreener.com/solana/${token.address})`);
       } else {
-          playSound('PING'); // Warning sound
+          playSound('PING');
       }
   };
 
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
-
   const handleAddJournalEntry = (entry: JournalEntry) => {
       const updated = [entry, ...journalEntries];
       setJournalEntries(updated);
@@ -131,19 +137,13 @@ const App: React.FC = () => {
   };
 
   const [telegramConfig, setTelegramConfig] = useState<TelegramConfig>({ botToken: '', chatId: '', enabled: false });
-  
-  // UPDATED DEFAULT SERVER CONFIG
   const defaultServerConfig: ServerConfig = { 
       url: 'http://155.212.217.21:3002', 
       apiKey: 'solana-sniper-secret-2024', 
       autoSave: true, 
       enabled: true 
   };
-
-  // PERSISTENCE KEY FOR SERVER CONFIG
   const SERVER_CONFIG_KEY = 'solana_sniper_server_config_v2';
-
-  // Load from LocalStorage or use Default
   const [serverConfig, setServerConfig] = useState<ServerConfig>(() => {
       try {
           const saved = localStorage.getItem(SERVER_CONFIG_KEY);
@@ -154,11 +154,14 @@ const App: React.FC = () => {
       return defaultServerConfig;
   });
 
-  const defaultAIConfig: AIConfig = {
-      enabled: true,
-      keys: [] 
-  };
+  const defaultAIConfig: AIConfig = { enabled: true, keys: [] };
   const [aiConfig, setAIConfig] = useState<AIConfig>(defaultAIConfig);
+
+  const defaultSolscanConfig: SolscanConfig = { apiKey: '', enabled: false };
+  const [solscanConfig, setSolscanConfig] = useState<SolscanConfig>(defaultSolscanConfig);
+
+  const defaultRpcConfig: RpcConfig = { rpcUrl: '', enabled: false };
+  const [rpcConfig, setRpcConfig] = useState<RpcConfig>(defaultRpcConfig);
 
   const defaultStages: LifecycleStage[] = [
       { id: 'stage_launch', enabled: true, name: '🚀 Launch Zone (0-1h)', description: 'High risk tolerance.', startAgeMinutes: 0, minLiquidity: 500, maxLiquidity: 1000000, minMcap: 0, maxMcap: 10000000, minHolders: 0, maxHolders: 100000, maxTop10Holding: 100 },
@@ -179,12 +182,12 @@ const App: React.FC = () => {
   };
 
   const [strategy, setStrategy] = useState<StrategyConfig>(defaultStrategy);
-
   const [isScanning, setIsScanning] = useState(true);
 
-  // Refs
   const serverConfigRef = useRef(serverConfig);
   const aiConfigRef = useRef(aiConfig);
+  const solscanConfigRef = useRef(solscanConfig);
+  const rpcConfigRef = useRef(rpcConfig);
   const tokensRef = useRef(tokens);
   const strategyRef = useRef(strategy);
   const deletedTokensRef = useRef(deletedTokens);
@@ -192,21 +195,19 @@ const App: React.FC = () => {
   const journalRef = useRef(journalEntries);
 
   useEffect(() => { telegramConfigRef.current = telegramConfig; }, [telegramConfig]);
-  
-  // Update Server Config Ref & Persist to LocalStorage
   useEffect(() => { 
       serverConfigRef.current = serverConfig; 
       localStorage.setItem(SERVER_CONFIG_KEY, JSON.stringify(serverConfig));
   }, [serverConfig]);
-
   useEffect(() => { aiConfigRef.current = aiConfig; }, [aiConfig]);
+  useEffect(() => { solscanConfigRef.current = solscanConfig; }, [solscanConfig]);
+  useEffect(() => { rpcConfigRef.current = rpcConfig; }, [rpcConfig]);
   useEffect(() => { tokensRef.current = tokens; }, [tokens]);
   useEffect(() => { strategyRef.current = strategy; }, [strategy]);
   useEffect(() => { deletedTokensRef.current = deletedTokens; }, [deletedTokens]);
   useEffect(() => { customRulesRef.current = customRules; }, [customRules]);
   useEffect(() => { journalRef.current = journalEntries; }, [journalEntries]);
 
-  // AUTO-CONNECT & TEST SERVER ON STARTUP
   useEffect(() => {
     if (currentUser && serverConfig.enabled) {
         addLog('INFO', `Connecting to Server (${serverConfig.url})...`);
@@ -220,16 +221,13 @@ const App: React.FC = () => {
             }
         });
     }
-  }, [currentUser]); // Run once when user logs in
+  }, [currentUser]);
 
   useEffect(() => {
     if (!currentUser) return;
-
     const initApp = async () => {
         addLog('INFO', `Loading profile for ${currentUser.username}...`);
-        
         const result = await loadHybridState(serverConfig, currentUser.id);
-        
         if (result.data) {
             const s = result.data;
             if (s.tokens) setTokens(s.tokens);
@@ -238,11 +236,15 @@ const App: React.FC = () => {
             if (s.telegram) setTelegramConfig(s.telegram);
             if (s.customRules) setCustomRules(s.customRules);
             if (s.journal) setJournalEntries(s.journal);
-            if (s.aiConfig) setAIConfig(s.aiConfig); // Load AI Config
+            if (s.aiConfig) setAIConfig(s.aiConfig);
+            if (s.solscan) setSolscanConfig(s.solscan);
+            if (s.rpc) setRpcConfig(s.rpc);
         } else {
             setTokens([]);
             setStrategy(defaultStrategy);
-            setAIConfig(defaultAIConfig); // Set default if new
+            setAIConfig(defaultAIConfig);
+            setSolscanConfig(defaultSolscanConfig);
+            setRpcConfig(defaultRpcConfig);
             addLog('INFO', 'New user workspace initialized.');
         }
     };
@@ -251,7 +253,6 @@ const App: React.FC = () => {
 
   const triggerAutoSave = async () => {
       if (!currentUser) return;
-
       const state = {
           tokens: tokensRef.current,
           deletedTokens: deletedTokensRef.current,
@@ -259,12 +260,12 @@ const App: React.FC = () => {
           strategy: strategyRef.current,
           telegram: telegramConfigRef.current,
           customRules: customRulesRef.current,
-          aiConfig: aiConfigRef.current, // Include AI Config in Save
+          aiConfig: aiConfigRef.current,
+          solscan: solscanConfigRef.current,
+          rpc: rpcConfigRef.current,
           lastUpdated: Date.now()
       };
-
       const status = await saveHybridState(serverConfigRef.current, state, currentUser.id);
-      
       if (status === 'SERVER') setSyncStatus('ONLINE');
       else if (status === 'LOCAL') setSyncStatus('LOCAL');
       else setSyncStatus('ERROR');
@@ -275,7 +276,7 @@ const App: React.FC = () => {
           const timer = setTimeout(triggerAutoSave, 2000);
           return () => clearTimeout(timer);
       }
-  }, [strategy, telegramConfig, customRules, currentUser, aiConfig]); 
+  }, [strategy, telegramConfig, customRules, currentUser, aiConfig, solscanConfig, rpcConfig]); 
 
   const getActiveStage = (ageMs: number, stages: LifecycleStage[]): LifecycleStage => {
       const ageMinutes = ageMs / (1000 * 60);
@@ -329,6 +330,11 @@ const App: React.FC = () => {
                   if (hit) {
                       triggeredDetails.push(`${corr.name} (${val})`);
                       addRiskAlert(token, 'CORRELATION', `Pattern matched: ${corr.name}`, 'WARNING', val.toString());
+                      
+                      // ZOMBIE LOGIC
+                      if (corr.name.toLowerCase().includes('zombie') && !token.zombieDetectedAt) {
+                          token.zombieDetectedAt = now;
+                      }
                   }
               });
 
@@ -342,14 +348,22 @@ const App: React.FC = () => {
               }
           }
 
-          if (ageMs > maxAgeMs) deleteReason = `Expired (> ${trackingDays}d ${trackingHours}h)`;
-          else if (latest.liquidity < minLiq) deleteReason = `Liq < Stage Minimum ($${minLiq})`;
-          else if (latest.marketCap > maxMcap) deleteReason = `MCAP > Stage Max ($${maxMcap})`;
-          else if (first && first.price > 0 && ((latest.price - first.price) / first.price) < -0.90) deleteReason = 'Rug Pull (-90%)';
+          // FILTERS - PINNED TOKENS ARE IMMUNE TO AUTO DELETION
+          if (!token.isPinned && !token.isOwned) {
+              // ZOMBIE TIMEOUT LOGIC (5 mins after detection)
+              if (token.zombieDetectedAt && (now - token.zombieDetectedAt) > (5 * 60 * 1000)) {
+                  deleteReason = 'Zombie Timeout (5m)';
+              }
+              // STANDARD FILTERS
+              else if (ageMs > maxAgeMs) deleteReason = `Expired (> ${trackingDays}d ${trackingHours}h)`;
+              else if (latest.liquidity < minLiq) deleteReason = `Liq < Stage Minimum ($${minLiq})`;
+              else if (latest.marketCap > maxMcap) deleteReason = `MCAP > Stage Max ($${maxMcap})`;
+              else if (first && first.price > 0 && ((latest.price - first.price) / first.price) < -0.90) deleteReason = 'Rug Pull (-90%)';
+          }
 
-          if (deleteReason && !token.isOwned) {
+          if (deleteReason) {
               newDeadTokens.push({ ...token, deletedAt: Date.now(), deletionReason: deleteReason });
-              playSound('NUKE');
+              if (newDeadTokens.length < 3) playSound('NUKE');
           } else {
               validTokens.push(token);
           }
@@ -363,37 +377,118 @@ const App: React.FC = () => {
   };
 
   const handleManualRemove = (token: Token) => {
-      if(!window.confirm(`Stop tracking ${token.symbol}?\nThis will move the token to the Graveyard as 'Manual Removal (Dead)'.`)) return;
-
       const deadToken: DeletedToken = {
           ...token,
           deletedAt: Date.now(),
           deletionReason: 'Manual Removal (Dead)'
       };
-
       setDeletedTokens(prev => [deadToken, ...prev]);
       setTokens(prev => prev.filter(t => t.id !== token.id));
-      
-      if (selectedTokenId === token.id) {
-          setSelectedTokenId(null);
-      }
-      
+      if (selectedTokenId === token.id) setSelectedTokenId(null);
       playSound('NUKE');
       addLog('WARNING', `Manually removed ${token.symbol} (Dead)`);
+  };
+
+  const handleBulkAction = (action: string, selectedTokens: Token[]) => {
+      if (action === 'DELETE') {
+          // If the user selects tokens and tries to delete them, we do it.
+          // Note: Pinned tokens *can* be deleted manually if selected in bulk action.
+          const deadTokens: DeletedToken[] = selectedTokens.map(t => ({
+              ...t,
+              deletedAt: Date.now(),
+              deletionReason: 'Bulk Removal'
+          }));
+          setDeletedTokens(prev => [...deadTokens, ...prev]);
+          const idsToRemove = new Set(selectedTokens.map(t => t.id));
+          setTokens(prev => prev.filter(t => !idsToRemove.has(t.id)));
+          playSound('NUKE');
+          addLog('WARNING', `Bulk removed ${selectedTokens.length} tokens`);
+      } else if (action === 'PIN') {
+          // SMART TOGGLE: 
+          // If ALL selected are already Pinned -> Unpin ALL.
+          // Otherwise -> Pin ALL.
+          const allArePinned = selectedTokens.every(t => t.isPinned);
+          const newStatus = !allArePinned; // If all pinned, become false. If mixed/none, become true.
+
+          const ids = new Set(selectedTokens.map(t => t.id));
+          setTokens(prev => prev.map(t => ids.has(t.id) ? { ...t, isPinned: newStatus } : t));
+          
+          addLog('SUCCESS', `Bulk ${newStatus ? 'Locked' : 'Unlocked'} ${selectedTokens.length} tokens`);
+      }
+  };
+
+  const handleTogglePin = (token: Token) => {
+      const newStatus = !token.isPinned;
+      setTokens(prev => prev.map(t => t.id === token.id ? { ...t, isPinned: newStatus } : t));
+  };
+
+  const handleAddManualToken = async (addressOrMint: string) => {
+      if (addressOrMint.length < 30) throw new Error("Invalid Address length");
+      const exists = tokensRef.current.find(t => t.address === addressOrMint || t.tokenAddress === addressOrMint);
+      if (exists) throw new Error(`Token ${exists.symbol} is already being tracked.`);
+
+      addLog('INFO', `Fetching manual token: ${addressOrMint}`);
+      let newToken: Token | null = null;
+      try {
+          // Pass Solscan key if enabled
+          const key = solscanConfigRef.current.enabled ? solscanConfigRef.current.apiKey : undefined;
+          newToken = await fetchTokenByMint(addressOrMint, key);
+      } catch (e) { console.warn("Mint fetch failed, trying generic batch..."); }
+
+      if (!newToken) {
+          const newTokens = await fetchTokensBatch([addressOrMint], []);
+          if (newTokens.length > 0) newToken = newTokens[0];
+      }
+
+      if (newToken) {
+          newToken.isManual = true;
+          newToken.isPinned = true; // Pin by default so it doesn't get deleted immediately
+          setTokens(prev => [newToken!, ...prev]);
+          addLog('SUCCESS', `Added ${newToken.symbol} manually.`);
+          playSound('PING');
+      } else {
+          throw new Error("Token data not found. Ensure address is valid.");
+      }
   };
 
   const runMarketCycle = async () => {
     if (!isScanning || !currentUser) return;
     setIsLoading(true);
     setApiError(null);
-    
     try {
         const currentTokens = tokensRef.current;
         let updatedTokensMap = new Map<string, Token>();
+        const currentSolscan = solscanConfigRef.current;
+        const currentRpc = rpcConfigRef.current;
+
+        // FETCH CHAIN INFO
+        // Wrap in try/catch so failure doesn't kill the loop
+        try {
+            if (currentSolscan.enabled || !chainInfo) {
+                 const info = await fetchChainInfo(currentSolscan.enabled ? currentSolscan.apiKey : undefined);
+                 if (info) setChainInfo(info);
+            }
+        } catch (e) { /* ignore */ }
 
         if (currentTokens.length > 0) {
             const addressesToUpdate = currentTokens.map(t => t.address);
             const refreshedTokens = await fetchTokensBatch(addressesToUpdate, currentTokens);
+            
+            // --- UPDATE HOLDER COUNTS FOR PINNED/MANUAL TOKENS ---
+            const importantTokens = refreshedTokens.filter(t => (t.isPinned || t.isManual) && t.tokenAddress);
+            if (importantTokens.length > 0) {
+                // Fetch holders in parallel
+                await Promise.all(importantTokens.map(async (t) => {
+                    const solKey = currentSolscan.enabled ? currentSolscan.apiKey : undefined;
+                    const rpcUrl = currentRpc.enabled ? currentRpc.rpcUrl : undefined;
+                    
+                    const holders = await fetchTokenHolders(t.tokenAddress, solKey, rpcUrl);
+                    if (holders !== null) {
+                         t.history[t.history.length - 1].holders = holders;
+                    }
+                }));
+            }
+
             refreshedTokens.forEach(t => {
                 const original = currentTokens.find(ct => ct.id === t.id);
                 if (original) {
@@ -402,6 +497,15 @@ const App: React.FC = () => {
                     t.entryTime = original.entryTime;
                     t.aiAnalysis = original.aiAnalysis;
                     t.strategyOverride = original.strategyOverride;
+                    t.isPinned = original.isPinned;
+                    t.isManual = original.isManual;
+                    t.zombieDetectedAt = original.zombieDetectedAt;
+                    
+                    // Preserve holder count if API failed to fetch new one but old one existed
+                    const lastHolders = original.history[original.history.length-1]?.holders;
+                    if (t.history[t.history.length-1].holders === 0 && lastHolders > 0) {
+                         t.history[t.history.length-1].holders = lastHolders;
+                    }
                 }
                 updatedTokensMap.set(t.id, t);
             });
@@ -411,8 +515,17 @@ const App: React.FC = () => {
         let newCount = 0;
         newPools.forEach(newPool => {
             if (!updatedTokensMap.has(newPool.id)) {
-                updatedTokensMap.set(newPool.id, newPool);
-                newCount++;
+                // CRITICAL FIX: Ensure we don't re-add tokens that were explicitly deleted
+                const isDead = deletedTokensRef.current.some(dt => 
+                    dt.address === newPool.address || 
+                    dt.tokenAddress === newPool.tokenAddress ||
+                    dt.id === newPool.id
+                );
+                
+                if (!isDead) {
+                    updatedTokensMap.set(newPool.id, newPool);
+                    newCount++;
+                }
             }
         });
         if (newCount > 0) playSound('PING');
@@ -421,6 +534,10 @@ const App: React.FC = () => {
         finalList = processAndFilterTokens(finalList);
 
         finalList.sort((a, b) => {
+            if (a.isPinned && !b.isPinned) return -1;
+            if (!a.isPinned && b.isPinned) return 1;
+            if (a.isManual && !b.isManual) return -1;
+            if (!a.isManual && b.isManual) return 1;
             if (a.isOwned && !b.isOwned) return -1;
             if (!a.isOwned && b.isOwned) return 1;
             return b.createdAt - a.createdAt;
@@ -428,7 +545,6 @@ const App: React.FC = () => {
 
         setTokens(finalList);
         await triggerAutoSave();
-        
     } catch (e: any) {
         if (tokens.length === 0) setApiError(e.message);
     } finally {
@@ -461,6 +577,8 @@ const App: React.FC = () => {
           setCustomRules(defaultCustomRules);
           setServerConfig(defaultServerConfig);
           setAIConfig(defaultAIConfig);
+          setSolscanConfig(defaultSolscanConfig);
+          setRpcConfig(defaultRpcConfig);
           addLog('WARNING', 'System settings reset to Factory Defaults.');
       }
   };
@@ -526,33 +644,15 @@ const App: React.FC = () => {
                     <span className={`w-2 h-2 rounded-full ${syncStatus === 'ONLINE' ? 'bg-green-400' : syncStatus === 'LOCAL' ? 'bg-orange-400' : 'bg-red-400'}`}></span>
                     {syncStatus === 'ONLINE' ? 'Cloud' : 'Local'}
                 </div>
-
                 <button onClick={() => setIsScanning(!isScanning)} className={`text-xs px-3 py-1 rounded border transition flex items-center gap-2 ${isScanning ? 'bg-green-900/30 border-green-800 text-green-400' : 'bg-red-900/30 border-red-800 text-red-400'}`}>
                     <span className={`w-2 h-2 rounded-full ${isScanning ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`}></span>
                     {isScanning ? 'Live' : 'Paused'}
                 </button>
-
-                <button 
-                    onClick={toggleMute} 
-                    className={`bg-gray-800 hover:bg-gray-700 p-2 rounded text-gray-400 hover:text-white border ${isMuted ? 'border-red-900/50 text-red-400' : 'border-gray-700'}`} 
-                    title={isMuted ? "Unmute Sound" : "Mute Sound"}
-                >
-                    {isMuted ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-                        </svg>
-                    ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                        </svg>
-                    )}
+                <button onClick={toggleMute} className={`bg-gray-800 hover:bg-gray-700 p-2 rounded text-gray-400 hover:text-white border ${isMuted ? 'border-red-900/50 text-red-400' : 'border-gray-700'}`} title={isMuted ? "Unmute Sound" : "Mute Sound"}>
+                    {isMuted ? <span className="text-xs">🔇</span> : <span className="text-xs">🔊</span>}
                 </button>
-                
                 <button onClick={handleLogout} className="bg-gray-800 hover:bg-gray-700 p-2 rounded text-gray-400 hover:text-white border border-gray-700" title="Logout">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                    </svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
                 </button>
             </div>
           </div>
@@ -564,7 +664,7 @@ const App: React.FC = () => {
             <TokenDetail 
                 token={selectedToken} 
                 onUpdateToken={handleUpdateToken} 
-                onRemoveToken={handleManualRemove} // Pass removal handler
+                onRemoveToken={handleManualRemove} 
                 onBack={() => setSelectedTokenId(null)} 
                 aiConfig={aiConfig} 
                 onNotify={sendTelegramNotification} 
@@ -575,85 +675,64 @@ const App: React.FC = () => {
                     <Scanner 
                         tokens={tokens} 
                         onSelectToken={handleDeepScan} 
-                        onRemoveToken={handleManualRemove} // Pass removal handler
+                        onRemoveToken={handleManualRemove} 
+                        onBulkAction={handleBulkAction}
+                        onTogglePin={handleTogglePin}
+                        onAddManualToken={handleAddManualToken}
                         deletedTokens={deletedTokens} 
                         aiConfig={aiConfig} 
                         onNotify={sendTelegramNotification} 
                         strategy={strategy} 
+                        chainInfo={chainInfo}
                     />
                 )}
                 {currentView === AppView.STRATEGY && <StrategyView config={strategy} setConfig={setStrategy} />}
-                {currentView === AppView.SIGNALS && (
-                    <SignalFeed 
-                        tokens={tokens} 
-                        onUpdateToken={handleUpdateToken} 
-                        onSelectToken={handleDeepScan} 
-                        minConfidence={strategy.minAIConfidence} 
-                        aiConfig={aiConfig}
-                        onNotify={sendTelegramNotification} 
-                    />
-                )}
+                {currentView === AppView.SIGNALS && <SignalFeed tokens={tokens} onUpdateToken={handleUpdateToken} onSelectToken={handleDeepScan} minConfidence={strategy.minAIConfidence} aiConfig={aiConfig} onNotify={sendTelegramNotification} />}
                 {currentView === AppView.PORTFOLIO && <Portfolio tokens={tokens} onSelectToken={handleDeepScan} />}
                 {currentView === AppView.ALERTS && <RiskFeed alerts={riskAlerts} onClear={() => setRiskAlerts([])} rules={customRules} onAddRule={(r) => setCustomRules([...customRules, r])} onDeleteRule={(id) => setCustomRules(customRules.filter(r => r.id !== id))} onToggleRule={(id) => setCustomRules(customRules.map(r => r.id === id ? {...r, enabled: !r.enabled} : r))} />}
-                {currentView === AppView.JOURNAL && (
-                    <PatternJournal 
-                        tokens={tokens} 
-                        entries={journalEntries} 
-                        onAddEntry={handleAddJournalEntry} 
-                        aiConfig={aiConfig} 
-                        onNotify={sendTelegramNotification} 
-                    />
-                )}
+                {currentView === AppView.JOURNAL && <PatternJournal tokens={tokens} entries={journalEntries} onAddEntry={handleAddJournalEntry} aiConfig={aiConfig} onNotify={sendTelegramNotification} />}
                 {currentView === AppView.LOGS && currentUser.username === 'adminsuper' && <SystemLogs logs={logs} />}
                 {currentView === AppView.GRAVEYARD && <Graveyard deletedTokens={deletedTokens} />}
                 {currentView === AppView.ADMIN_PANEL && <AdminPanel aiConfig={aiConfig} />}
                 {currentView === AppView.SETTINGS && (
                     <div className="space-y-6 animate-fade-in">
                         <div className="bg-gray-850 p-6 rounded-xl border border-gray-750 shadow-lg">
-                            <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-                                👤 My Profile
-                            </h2>
+                            <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">👤 My Profile</h2>
                             <div className="flex flex-col md:flex-row justify-between items-center bg-gray-900/50 p-4 rounded-lg border border-gray-800">
                                 <div className="mb-4 md:mb-0">
                                     <p className="text-gray-400 text-xs uppercase font-bold tracking-wider mb-1">Current Session</p>
-                                    <p className="text-white font-bold text-lg flex items-center gap-2">
-                                        {currentUser.username} 
-                                        <span className="text-gray-500 text-sm font-normal">({currentUser.email})</span>
-                                        {currentUser.role === 'ADMIN' && <span className="bg-purple-900/50 text-purple-300 text-[10px] px-2 py-0.5 rounded border border-purple-800">SUPER ADMIN</span>}
-                                    </p>
+                                    <p className="text-white font-bold text-lg flex items-center gap-2">{currentUser.username} <span className="text-gray-500 text-sm font-normal">({currentUser.email})</span>{currentUser.role === 'ADMIN' && <span className="bg-purple-900/50 text-purple-300 text-[10px] px-2 py-0.5 rounded border border-purple-800">SUPER ADMIN</span>}</p>
                                 </div>
-                                <button onClick={handleChangePassword} className="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-lg text-sm text-gray-200 border border-gray-700 transition-all hover:border-gray-500">
-                                    Change Password
-                                </button>
+                                <button onClick={handleChangePassword} className="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-lg text-sm text-gray-200 border border-gray-700 transition-all hover:border-gray-500">Change Password</button>
                             </div>
                         </div>
-
+                        
                         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                            
-                            <div className="h-full">
-                                <AISettings config={aiConfig} onSave={setAIConfig} />
-                            </div>
-
-                            <div className="h-full">
+                            <div className="h-full"><AISettings config={aiConfig} onSave={setAIConfig} /></div>
+                            <div className="h-full space-y-6">
                                 <TelegramSettings config={telegramConfig} onSave={setTelegramConfig} />
+                                <SolscanSettings config={solscanConfig} onSave={setSolscanConfig} />
+                                <RpcSettings config={rpcConfig} onSave={setRpcConfig} />
                             </div>
-
+                            
                             {currentUser.role === 'ADMIN' && (
                                 <div className="h-full xl:col-span-2">
                                     <ServerSettings 
                                         config={serverConfig} 
                                         onSave={setServerConfig} 
-                                        onForceLoad={() => {
-                                            loadHybridState(serverConfig, currentUser.id).then(res => {
-                                                if(res.data) {
-                                                    setTokens(res.data.tokens);
-                                                    setDeletedTokens(res.data.deletedTokens);
-                                                    setStrategy(res.data.strategy);
-                                                    setCustomRules(res.data.customRules || defaultCustomRules);
-                                                    if (res.data.aiConfig) setAIConfig(res.data.aiConfig);
-                                                    addLog('SUCCESS', 'Manual Load Complete');
-                                                }
-                                            });
+                                        onForceLoad={() => { 
+                                            loadHybridState(serverConfig, currentUser.id).then(res => { 
+                                                if(res.data) { 
+                                                    setTokens(res.data.tokens); 
+                                                    setDeletedTokens(res.data.deletedTokens); 
+                                                    setStrategy(res.data.strategy); 
+                                                    setCustomRules(res.data.customRules || defaultCustomRules); 
+                                                    if (res.data.aiConfig) setAIConfig(res.data.aiConfig); 
+                                                    if (res.data.solscan) setSolscanConfig(res.data.solscan);
+                                                    if (res.data.rpc) setRpcConfig(res.data.rpc);
+                                                    addLog('SUCCESS', 'Manual Load Complete'); 
+                                                } 
+                                            }); 
                                         }} 
                                         onForceSave={triggerAutoSave} 
                                     />
@@ -664,17 +743,9 @@ const App: React.FC = () => {
                         <div className="bg-red-900/5 border border-red-900/20 p-6 rounded-xl flex flex-col md:flex-row justify-between items-center gap-4 shadow-lg shadow-red-900/5">
                             <div className="flex items-center gap-4">
                                 <div className="bg-red-900/20 p-3 rounded-full text-2xl border border-red-900/30">⚠️</div>
-                                <div>
-                                    <h3 className="text-red-400 font-bold text-lg">Danger Zone</h3>
-                                    <p className="text-gray-500 text-sm">Reset strategy, rules, and server to default settings. Cannot be undone.</p>
-                                </div>
+                                <div><h3 className="text-red-400 font-bold text-lg">Danger Zone</h3><p className="text-gray-500 text-sm">Reset strategy, rules, and server to default settings.</p></div>
                             </div>
-                            <button 
-                                onClick={handleFactoryReset}
-                                className="px-6 py-3 bg-red-900/20 hover:bg-red-900/40 text-red-400 border border-red-800/50 rounded-lg font-bold transition-all whitespace-nowrap shadow-inner"
-                            >
-                                ♻️ Reset to Defaults
-                            </button>
+                            <button onClick={handleFactoryReset} className="px-6 py-3 bg-red-900/20 hover:bg-red-900/40 text-red-400 border border-red-800/50 rounded-lg font-bold transition-all whitespace-nowrap shadow-inner">♻️ Reset to Defaults</button>
                         </div>
                     </div>
                 )}

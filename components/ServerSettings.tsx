@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ServerConfig } from '../types';
 import { testServerConnection } from '../services/persistence';
 
@@ -16,8 +16,13 @@ export const ServerSettings: React.FC<Props> = ({ config, onSave, onForceLoad, o
   const [testMessage, setTestMessage] = useState('');
   const [connMode, setConnMode] = useState<'DIRECT' | 'PROXY'>('DIRECT');
 
+  // Sync state when props change
+  useEffect(() => {
+    setLocalConfig(config);
+  }, [config]);
+
   const handleChange = (key: keyof ServerConfig, value: any) => {
-    setLocalConfig({ ...localConfig, [key]: value });
+    setLocalConfig(prev => ({ ...prev, [key]: value }));
     // Reset test status on change
     if (testStatus !== 'IDLE') {
         setTestStatus('IDLE');
@@ -115,14 +120,14 @@ export const ServerSettings: React.FC<Props> = ({ config, onSave, onForceLoad, o
                  </button>
                  
                  {testStatus === 'SUCCESS' && connMode === 'PROXY' && (
-                     <div className="bg-blue-900/20 border border-blue-800 p-2 rounded text-[10px] text-blue-400 flex items-center gap-2">
+                     <div className="bg-blue-900/20 border border-blue-800 p-2 rounded text-[10px] text-blue-400 flex items-center gap-2 animate-fade-in">
                          <span>🛡️</span>
                          <span>Connection routed via <b>Secure Proxy</b> (HTTPS Support enabled).</span>
                      </div>
                  )}
 
                  {testStatus === 'ERROR' && testMessage.includes('500') && (
-                     <div className="bg-yellow-900/20 border border-yellow-800 p-2 rounded text-[10px] text-yellow-400 flex items-start gap-2">
+                     <div className="bg-yellow-900/20 border border-yellow-800 p-2 rounded text-[10px] text-yellow-400 flex items-start gap-2 animate-fade-in">
                          <span className="text-lg">💡</span>
                          <div>
                              <b>Tip: Error 500 = Database Error</b>

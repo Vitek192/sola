@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TelegramConfig } from '../types';
 
 interface Props {
@@ -12,8 +12,13 @@ export const TelegramSettings: React.FC<Props> = ({ config, onSave }) => {
   const [testStatus, setTestStatus] = useState<'IDLE' | 'SENDING' | 'SUCCESS' | 'ERROR'>('IDLE');
   const [errorMsg, setErrorMsg] = useState('');
 
+  // Sync state when props change (e.g. data loaded from server)
+  useEffect(() => {
+    setLocalConfig(config);
+  }, [config]);
+
   const handleChange = (key: keyof TelegramConfig, value: string | boolean) => {
-    setLocalConfig({ ...localConfig, [key]: value });
+    setLocalConfig(prev => ({ ...prev, [key]: value }));
   };
 
   const handleTestMessage = async () => {
@@ -127,12 +132,12 @@ export const TelegramSettings: React.FC<Props> = ({ config, onSave }) => {
         </div>
         
         {testStatus === 'SUCCESS' && (
-            <div className="bg-green-500/10 border border-green-500/20 p-2 rounded text-green-400 text-xs text-center font-medium">
+            <div className="bg-green-500/10 border border-green-500/20 p-2 rounded text-green-400 text-xs text-center font-medium animate-fade-in">
                 ✅ Success! Check your Telegram.
             </div>
         )}
         {testStatus === 'ERROR' && (
-            <div className="bg-red-500/10 border border-red-500/20 p-2 rounded text-red-400 text-xs text-center font-medium">
+            <div className="bg-red-500/10 border border-red-500/20 p-2 rounded text-red-400 text-xs text-center font-medium animate-fade-in">
                 ❌ Error: {errorMsg}
             </div>
         )}
